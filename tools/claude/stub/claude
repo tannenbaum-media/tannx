@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Fake Claude Code CLI for test-wish-loop.sh - no model, no network.
+# Records its argv, then "builds" the wish by appending one line to a
+# scratch file (wish-stub.txt) and committing it, and prints a minimal
+# stream-json transcript like `claude -p --output-format stream-json`.
+# STUB_FAIL=1 makes it exit non-zero without committing.
+set -u
+[ -n "${STUB_ARGV_LOG:-}" ] && printf '%s\n' "$@" > "$STUB_ARGV_LOG"
+[ "${1:-}" = "--version" ] && { echo "0.0.0 (stub)"; exit 0; }
+prompt=""
+while [ $# -gt 0 ]; do
+  case "$1" in -p) prompt="${2:-}"; shift ;; esac
+  shift
+done
+wish="$(printf '%s\n' "$prompt" | sed -n 's/^ *WISH: //p' | head -n1)"
+echo '{"type":"system","subtype":"init","session_id":"stub","model":"stub","permissionMode":"dontAsk"}'
+[ "${STUB_FAIL:-0}" = 1 ] && { echo '{"type":"result","subtype":"error","is_error":true,"num_turns":1}'; exit 1; }
+echo "$wish" >> wish-stub.txt
+git add wish-stub.txt
+git commit -q -m "stub: build wish '$wish'" -m "Written by the test stub of the Claude Code CLI."
+echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git commit -m stub"}}]}}'
+printf '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"total_cost_usd":0,"result":"stub built: %s"}\n' "$wish"
