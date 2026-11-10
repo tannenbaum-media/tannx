@@ -1,0 +1,45 @@
+name: Release
+
+# Push a tag like v2.88 and GitHub builds the boot images and attaches them
+# to a release of the same name (release notes: docs/RELEASE-NOTES.md – update it before tagging).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binutils gcc gcc-multilib make python3 qemu-system-x86 \
+            netcat-openbsd mtools dosfstools fdisk
+
+      - name: Build images
+        run: make agentos32.img uefi.img hybrid.img
+
+      - name: Smoke test
+        run: make test32
+
+      - name: Package
+        run: |
+          V="${GITHUB_REF_NAME}"
+          mkdir dist
+          cp hybrid.img    "dist/tannx-${V}-usb-hybrid.img"
+          cp agentos32.img "dist/tannx-${V}-bios.img"
+          cp uefi.img      "dist/tannx-${V}-uefi.img"
+          (cd dist && sha256sum *.img > SHA256SUMS)
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: TannX OS ${{ github.ref_name }}
+          body_path: docs/RELEASE-NOTES.md
+          files: dist/*
