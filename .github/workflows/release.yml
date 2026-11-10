@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  TEST_TIMEOUT: "600"   # GitHub runners are slower than a dev box; test.sh watchdog
+
 jobs:
   release:
     runs-on: ubuntu-latest

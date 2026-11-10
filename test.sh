@@ -22,7 +22,7 @@ FIFO="$(mktemp -u /tmp/agentos_test_XXXX.in)"
 # German-speaking 16-bit kernel and is kept only for the image-name switch.
 IS32=0
 case "$(basename "$IMG")" in *32*|*hybrid*) IS32=1 ;; esac
-TO=60; [ "$IS32" -eq 1 ] && TO=150   # global watchdog (seconds; grew with the
+TO=60; [ "$IS32" -eq 1 ] && TO=150; TO=${TEST_TIMEOUT:-$TO}   # global watchdog (TEST_TIMEOUT overrides, e.g. slow CI runners) (seconds; grew with the
                                      # added mmcheck/display/modulo feed steps)
 SPAWN_PAT="math)-Agent bereit"
 [ "$IS32" -eq 1 ] && SPAWN_PAT="math) agent ready"
@@ -38,6 +38,7 @@ qemu-system-i386 -drive format=raw,file="$TMPIMG" \
   -nographic <"$FIFO" >"$LOG" 2>/dev/null &
 QPID=$!
 exec 3>"$FIFO"        # keep the serial input open for the whole run
+trap '' PIPE         # if the watchdog kills QEMU, fail the checks instead of dying on SIGPIPE
 
 cleanup() {
   exec 3>&- 2>/dev/null
