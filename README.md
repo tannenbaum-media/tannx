@@ -14,12 +14,15 @@ missing is not lamented but *wished for* from inside the running OS, and
 the next LLM session builds it. Since v2.46 that is literal: the OS can
 ask a model for a program and run it, on the spot, from its own disk.
 
+![TannX OS booting: BIOS, the desktop, an agent at work, the forest and the guided tour](docs/img/tannx-demo.gif)
+
 ![TannX OS desktop: terminal, live agent cards, menu bar](docs/img/desktop.jpg)
 
 | | |
 |---|---|
 | ![Help menu with the apps](docs/img/menu-apps.jpg) | ![run tour](docs/img/tour.jpg) |
 | ![forest: the agents as a growing forest](docs/img/forest.jpg) | ![fetch](docs/img/fetch.jpg) |
+| ![spawn an agent, give it a task: the 100th prime, computed in ring 3](docs/img/tannx-agents.gif) | ![forest: aurora over the agent forest](docs/img/tannx-forest.gif) |
 
 Runs in QEMU (BIOS, UEFI, PXE) and on real hardware - verified on a
 Haswell desktop and a dual-socket Xeon Gold server (UEFI).
