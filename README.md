@@ -95,7 +95,15 @@ make run32        # boot the live image in QEMU; saves and wishes persist across
 make test-all     # the full headless gate: 49 QEMU suites, all green or no commit
 ```
 
-Just want to look? Build once and boot the image directly:
+Just want to look? Boot the release image, no build needed (only QEMU):
+
+```bash
+curl -LO https://github.com/tannenbaum-media/tannx/releases/download/v2.87/tannx-v2.87-bios.img
+qemu-system-i386 -drive format=raw,file=tannx-v2.87-bios.img -vga std -m 512 \
+  -netdev user,id=n0 -device rtl8139,netdev=n0
+```
+
+Or build once and boot your own image:
 
 ```bash
 make && qemu-system-i386 -drive format=raw,file=agentos32.img -vga std -m 512 \
