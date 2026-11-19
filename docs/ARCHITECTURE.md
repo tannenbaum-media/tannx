@@ -377,6 +377,16 @@ tools and lab scripts:
 - A foreground ring-3 program and the compositor share one `user.bin`
   and one `.bss`: crt0 zeroes it on start, so a preempted compositor
   must snapshot its pointers and null-guard them.
+- An AHCI port that saw an error stops its command list (PxCMD.CR = 0)
+  and ignores every later command until software restarts it. The boot
+  self-check sent an ATAPI READ CAPACITY packet to a SATA disk (a missing
+  `ret` after the HDD read); QEMU shrugs that off, node-e's SSD aborted it,
+  and the persistence probe then waited out ~75 M MMIO reads - 78 s of
+  black screen before the timer even started (v2.88). Since v2.89
+  `ahci_exec` restarts the port after any error (`ahci_port_init`, with a
+  COMRESET when PxTFD still shows ERR/BSY/DRQ), the boot probe runs on a
+  ~1 s budget (`AHCI_TMO_BOOT`), and a failed probe dumps the port
+  registers on COM2.
 - `smpon` is opt-in since v2.74: a faulting application processor
   boot-loops real hardware, so the kernel never wakes APs on its own.
 

@@ -1582,9 +1582,47 @@ api_fr_d:
     pop %edi
     push %edi
     movl $0xffffffff, 0x30(%edi) # clear PxSERR
-    mov 0x18(%edi), %eax         # FRE then ST
+    mov 0x18(%edi), %eax         # FRE first: the device's D2H FIS lands in PxTFD
     or $0x10, %eax
     mov %eax, 0x18(%edi)
+    # The firmware may hand the port over with a failed command in PxTFD
+    #   (node-e, C620 sSATA: STS 0x51 ERR, ERROR 0x04 ABRT). With ERR (or
+    #   BSY/DRQ) set the HBA accepts ST but never runs the list (PxCMD.CR
+    #   stays 0) and every command times out. COMRESET the link (PxSCTL.DET
+    #   1 -> 0), wait for the link and the device's signature FIS, then start.
+    mov 0x20(%edi), %eax         # PxTFD.STS
+    test $0x89, %al              # BSY | DRQ | ERR
+    jz api_st
+    mov 0x2c(%edi), %eax         # PxSCTL.DET = 1: COMRESET
+    and $0xfffffff0, %eax
+    or $1, %eax
+    mov %eax, 0x2c(%edi)
+    mov $3000, %ecx              # >= 1 ms (port 0x80 writes, ~1 us each)
+api_dly:
+    outb %al, $0x80
+    loop api_dly
+    and $0xfffffff0, %eax        # DET = 0: release the reset
+    mov %eax, 0x2c(%edi)
+    mov $0x100000, %ecx
+api_lnk:
+    mov 0x28(%edi), %eax         # PxSSTS.DET == 3: link up again
+    and $0x0f, %eax
+    cmp $3, %eax
+    je api_lnk_d
+    dec %ecx
+    jnz api_lnk
+api_lnk_d:
+    movl $0xffffffff, 0x30(%edi) # COMRESET sets PxSERR bits: clear them
+    mov $0x100000, %ecx
+api_sig:
+    mov 0x20(%edi), %eax         # signature FIS arrived (BSY/DRQ/ERR clear)?
+    test $0x89, %al
+    jz api_st
+    dec %ecx
+    jnz api_sig
+api_st:
+    movl $0xffffffff, 0x10(%edi) # clear PxIS
+    mov 0x18(%edi), %eax         # ST: run the command list
     or $0x01, %eax
     mov %eax, 0x18(%edi)
     pop %edi
@@ -1621,7 +1659,8 @@ ae_na:
     dec %eax                     # DBC = byte count - 1 (22 bits)
     and $0x3fffff, %eax
     mov %eax, 0x8c(%ebx)
-    mov $0x800000, %ecx          # wait while BSY|DRQ
+    mov ahci_tmo, %ecx           # wait while BSY|DRQ (1/8 of the budget)
+    shr $3, %ecx
 ae_rdy:
     mov 0x20(%edi), %eax         # PxTFD
     test $0x88, %eax
@@ -1632,7 +1671,7 @@ ae_rdy:
 ae_go:
     movl $0xffffffff, 0x10(%edi) # clear PxIS
     movl $1, 0x38(%edi)          # PxCI bit0 -> issue slot 0
-    mov $0x4000000, %ecx
+    mov ahci_tmo, %ecx           # completion budget (MMIO reads, ~1 us each)
 ae_wait:
     mov 0x38(%edi), %eax         # PxCI clear -> done
     test $1, %eax
@@ -1653,9 +1692,10 @@ ae_check:
     clc
     ret
 ae_err:
-    pop %edi
-    pop %ecx
-    pop %ebx
+    call ahci_port_init          # error/timeout: the HBA stopped the list (CR=0)
+    pop %edi                     #   and would ignore every later command - stop,
+    pop %ecx                     #   clear, COMRESET if the task file still shows
+    pop %ebx                     #   ERR/BSY/DRQ, restart (EDI = port base here)
     stc
     ret
 
@@ -2168,6 +2208,10 @@ ld_n:
     movb $0, (%edi)
     mov $REPLY_SCRATCH, %esi
     call log_str
+    ret                          # an HDD is done here. Falling through sent the
+                                 #   ATAPI READ CAPACITY packet to the SATA disk:
+                                 #   QEMU shrugs, node-e's SSD aborted it and the
+                                 #   port sat in error (CR=0) until the next boot
 la_atapi_cap:                     # ATAPI: log media state so the SCSI packet
     call ahci_atapi_capacity      #   path is verifiable over the wire (no-media
     jc la_nomedia                 #   on an empty drive still proves it round-trips)
@@ -8557,8 +8601,10 @@ lp_try_ahci:                     # a blessed AHCI SATA disk? (reads are harmless
     cmpb $0, ahci_devtype        # only a SATA HDD can be a persistence medium
     jne lp_ret
     mov $256, %eax
+    movl $AHCI_TMO_BOOT, ahci_tmo  # boot probe: give up after ~1 s, not ~75 s
     call ahci_read               # marker sector -> AHCI_BUF
-    jc lp_ret
+    movl $AHCI_TMO, ahci_tmo
+    jc lp_ahci_fail
     mov $marker_str, %esi
     mov $AHCI_BUF, %edi
     mov $14, %ecx
@@ -8601,6 +8647,34 @@ lp_san_n:
     mov $logm_restore, %esi      # note it in the kernel log
     call log_str
 lp_ret:
+    ret
+# The boot probe's AHCI read failed or timed out. node-e (Supermicro X11DPi,
+#   C620 sSATA, v2.88): the read never completed and the two bounded waits in
+#   ahci_exec (~75 M MMIO reads) held the boot for 78 s before the timer even
+#   started. Report the port state on COM2 (the SOL; COM1 stays exact for the
+#   gate) so the next hardware run shows why: TFD CI IS SERR CMD SSTS.
+lp_ahci_fail:
+    push %edi
+    mov $msg_ahci_bootfail, %esi
+    call hw_puts
+    mov ahci_pbase, %edi
+    mov 0x20(%edi), %eax
+    call hw_hex
+    mov 0x38(%edi), %eax
+    call hw_hex
+    mov 0x10(%edi), %eax
+    call hw_hex
+    mov 0x30(%edi), %eax
+    call hw_hex
+    mov 0x18(%edi), %eax
+    call hw_hex
+    mov 0x28(%edi), %eax
+    call hw_hex
+    mov $0x0d, %al
+    call hw_mark
+    mov $0x0a, %al
+    call hw_mark
+    pop %edi
     ret
 
 # --- uptime / mem ------------------------------------------------------
@@ -11483,6 +11557,8 @@ serial_init:
 .equ AHCI_FIS,     0x29400     # AHCI received-FIS area (256 B, 256-aligned)
 .equ AHCI_CT,      0x29800     # AHCI command table (CFIS+PRDT, 128-aligned)
 .equ AHCI_BUF,     0x2A000     # AHCI sector data buffer (1 sector, page-aligned)
+.equ AHCI_TMO,      0x4000000   # ahci_exec budget: ~67 M MMIO reads (a spun-down disk)
+.equ AHCI_TMO_BOOT, 0x100000    # boot persistence probe: ~1 M reads (~1 s on silicon)
 .equ HEAP_BASE,    0x50000     # kernel heap arena start (kmalloc/kfree)
 .equ HEAP_END,     0x8FFFF     # kernel heap arena end
 .equ REPLY_SCRATCH, 0x49F00    # return-channel/netwish payload build (below NIC_PKT)
@@ -20860,6 +20936,7 @@ ct_start:  .long 0               # cputest: RDTSC start value
 ct_chunks: .long 10              # cputest: number of 50M-iteration chunks (configurable)
 ahci_abar: .long 0               # mapped AHCI HBA base (ABAR), 0 = none
 ahci_pbase:.long 0               # active SATA port register base
+ahci_tmo:  .long AHCI_TMO        # ahci_exec completion budget (MMIO reads)
 ahci_wflag:.byte 0               # ahci_exec direction (0 read, 1 write)
 ahci_aflag:.byte 0               # ahci_exec ATAPI packet (A bit in cmd hdr)
 ahci_devtype:.byte 0             # active device (0 SATA HDD, 1 ATAPI)
@@ -21783,6 +21860,7 @@ msg_reboot:     .asciz "Rebooting...\r\n"
 msg_exc:        .asciz "\r\n*** CPU EXCEPTION #"
 msg_exc_thr:    .asciz " thread="
 msg_exc2:       .asciz " - system halted ***\r\n"
+msg_ahci_bootfail: .asciz "\r\nAHCI boot probe failed: TFD CI IS SERR CMD SSTS "
 msg_halt:       .asciz "System halted. You can close the VM now.\r\n"
 msg_poweroff:   .asciz "ACPI power off...\r\n"
 
