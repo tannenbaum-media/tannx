@@ -5532,6 +5532,13 @@ am_prime:                        # n-th prime via trial division
     test %ecx, %ecx
     jz am_fin
     mov $1, %ebx                 # EBX = candidate
+    # The trial-division loop must not straddle a 4 KB page: QEMU's TCG
+    #   chains translated blocks directly only within one page, so a loop
+    #   across a boundary goes through the TB lookup on every jump. When an
+    #   unrelated change moved ap_div across 0xC000 (v2.89 development),
+    #   'task prime 65000' got ~2x slower and test-sysmon timed out. 64-byte
+    #   alignment keeps the whole loop in one block. (No effect on silicon.)
+    .balign 64, 0x90
 ap_cand:
     inc %ebx
     push %ecx
@@ -5556,6 +5563,7 @@ ap_prime:
 am_gcd:                          # Euclid over two 16-bit inputs
     movzwl 4(%esi), %ebx
     movzwl 6(%esi), %ecx
+    .balign 32, 0x90             # same reason as ap_cand: one page per loop
 am_gcd_loop:
     test %ecx, %ecx
     jz am_fin
