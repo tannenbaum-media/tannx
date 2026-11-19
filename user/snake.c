@@ -217,6 +217,10 @@ int snake_main(void) {
         fb.base = 0; fb.w = GW; fb.h = GH; fb.ppsl = GW;
         cs = 0; ox = oy = 0;
     } else {
+        /* own the framebuffer before the first draw: without the grab the
+         * kernel kept painting its status line, the desktop panel values and
+         * console text over the board (the launcher only takes the keyboard) */
+        sys_kbgrab();
         int sx = (int)fb.w / GW, sy = (int)fb.h / GH;
         cs = sx < sy ? sx : sy; if (cs < 2) cs = 2;
         ox = ((int)fb.w - GW * cs) / 2;
