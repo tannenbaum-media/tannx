@@ -2,9 +2,14 @@
 
 [![CI](https://github.com/tannenbaum-media/tannx/actions/workflows/ci.yml/badge.svg)](https://github.com/tannenbaum-media/tannx/actions/workflows/ci.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![Website: tannx.dev](https://img.shields.io/badge/website-tannx.dev-2f6b3a.svg)](https://tannx.dev/)
 
 **TannX OS - a bootable x86 OS written in assembly and grown by AI agents.
 Plant a wish. The agents grow it.**
+
+**Website: [tannx.dev](https://tannx.dev/)** · [Try it in your browser](https://tannx.dev/try/) ·
+[Download](https://tannx.dev/download/) · [Architecture](https://tannx.dev/architecture/) ·
+[Docs](https://tannx.dev/docs/)
 
 TannX OS is a bootable x86 operating system whose kernel is pure GNU
 assembler (no compiler, no libc, no BIOS calls after boot) and whose
@@ -29,7 +34,8 @@ Haswell desktop and a dual-socket Xeon Gold server (UEFI).
 
 **Try first: `run tour`** - boot it (`make run32`) and type `run tour` (or
 pick *Help > run tour* in the menu bar) for a guided tour that runs real
-agent commands live.
+agent commands live. No toolchain at hand? [tannx.dev/try](https://tannx.dev/try/)
+boots the release image right in your browser (no network there, so no LLM wishes).
 
 ## How it works
 
@@ -350,4 +356,4 @@ may use the code, but please do not ship forks under this name or logo.
 Third-party material (console font glyphs, the Lato font used to render the
 logo artwork) is listed in [THIRD_PARTY.md](THIRD_PARTY.md).
 
-Made by Tannenbaum Media.
+Made by Tannenbaum Media · [tannx.dev](https://tannx.dev/)
