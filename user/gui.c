@@ -52,6 +52,8 @@ struct gui {
                                   * ring-3 stack overflows into the adjacent TID's
                                   * stack and smashed a launching game's return
                                   * address (-> #PF at a console-text address). */
+    unsigned char peek[4004];    /* a second snapshot for screen_taken() */
+    unsigned char gen;           /* the kernel repaint generation we last drew for */
 };
 #define G ((struct gui *)0x01800000)
 #define FB      (G->FB)
@@ -112,8 +114,19 @@ static uint32_t blend(uint32_t dst, uint32_t src, int a) {
     return (uint32_t)((r << 16) | (g << 8) | b);
 }
 
+/* Did a full-screen program take the screen (SYS_CONSOLE byte 2), or did
+ * it come back from one (byte 3 moved) since we started drawing? A repaint
+ * of the whole scene takes seconds under v86: without asking between its
+ * stages, gui painted its panels and console over a tour that had just
+ * started (v2.88). The caller drops the rest and repaints later. */
+static int screen_taken(void) {
+    sys_console(G->peek);
+    return G->peek[2] || G->peek[3] != G->gen;
+}
+
 static void draw_wallpaper(void) {
     for (uint32_t y = 0; y < FBH; y++) {
+        if (!(y & 63) && y && screen_taken()) return;
         uint32_t c = wp_color((int)y);
         uint32_t *row = FB + y * FBPP;
         for (uint32_t x = 0; x < FBW; x++) row[x] = c;
@@ -393,8 +406,9 @@ static void draw_spinner(int ang) {
 static void draw_agents(void);           /* defined below init_layout */
 static void draw_status(uint32_t up);    /* top-bar chip, defined below */
 
-static void draw_static(void) {
+static int draw_static(void) {             /* 0 = drawn, -1 = screen taken */
     draw_wallpaper();
+    if (screen_taken()) return -1;
     /* top bar: near-opaque dark glass with an accent underline */
     glass_panel(0, 0, (int)FBW, TOPBAR, 0x0a1220, 220, 0);
     hline(0, TOPBAR - 1, (int)FBW, ACCENT);
@@ -403,10 +417,13 @@ static void draw_static(void) {
     draw_text(CELLW, (TOPBAR - CELLH) / 2, "TannX", TITLECOL);
     draw_text(CELLW + 12 * CELLW, (TOPBAR - CELLH) / 2, "Dark Glass", ACCENT2);
     /* console panel: frosted glass, rounded, floating on a soft shadow */
+    if (screen_taken()) return -1;
     panel_shadow(PANX, PANY, PANW, PANH);
     glass_panel(PANX, PANY, PANW, PANH, 0x0e1a30, 150, CELLH);
+    if (screen_taken()) return -1;
     draw_agents();                       /* live agent roster in the right margin */
     draw_status(sys_uptime());           /* top-bar agent-count chip */
+    return 0;
 }
 
 /* gridcache (last rendered grid) + cur_cx/cur_cy live in struct gui (top) */
@@ -454,7 +471,8 @@ static void draw_cell(int r, int c, unsigned char ch, unsigned char at) {
 static int draw_console(const unsigned char *con) {
     const unsigned char *grid = con + 4;
     int changed = 0;
-    for (int r = 0; r < 25; r++)
+    for (int r = 0; r < 25; r++) {
+        int row0 = changed;
         for (int c = 0; c < 80; c++) {
             int k = (r * 80 + c) * 2;
             if (grid[k] != gridcache[k] || grid[k + 1] != gridcache[k + 1]) {
@@ -463,6 +481,10 @@ static int draw_console(const unsigned char *con) {
                 changed++;
             }
         }
+        /* a row was drawn: still ours? (idle frames draw nothing and ask
+         * nothing; rows not drawn yet keep their stale cache entries) */
+        if (changed != row0 && r < 24 && screen_taken()) return -1;
+    }
     int ncx = con[0], ncy = con[1];
     if (ncx != cur_cx || ncy != cur_cy) {            /* erase the old underline */
         if (cur_cx >= 0 && cur_cx < 80 && cur_cy < 25) {
@@ -659,11 +681,10 @@ int gui_main(void) {
     g_busy = 0;
     unsigned char *con = G->con;          /* in the fixed state region, NOT on the
                                            * 4 KB stack (it would overflow it) */
-    draw_static();
-    uint32_t last_sec = 0xffffffff, last_act = 0, last_present = 0xffffffff;
-    int ang = -1, was_fg = 0;
     sys_console(con);
-    unsigned char gen = con[3];           /* kernel repaint generation (see below) */
+    G->gen = con[3];                      /* kernel repaint generation (see below) */
+    uint32_t last_sec = 0xffffffff, last_act = 0, last_present = 0xffffffff;
+    int ang = -1, was_fg = (draw_static() < 0);
 
     for (;;) {
         sys_console(con);
@@ -676,7 +697,7 @@ int gui_main(void) {
          * (fg_release, the kernel's gfx). A short-lived app can come and go
          * between two of our polls - without the generation we never saw
          * con[2] set and left its last frame on screen. */
-        if (con[3] != gen) { gen = con[3]; was_fg = 1; }
+        if (con[3] != G->gen) { G->gen = con[3]; was_fg = 1; }
         if (was_fg) {                        /* the game just exited - reclaim the screen */
             was_fg = 0;
             /* the game is the same user.bin image at 0x400000, so its crt0 zeroed
@@ -687,10 +708,11 @@ int gui_main(void) {
             if (!FBW || vgpu_on) init_layout();
             memset(gridcache, 0, 4000);      /*   force every console cell to redraw */
             cur_cx = cur_cy = -1;
-            draw_static();
             last_sec = 0xffffffff;           /*   force the clock to redraw too */
+            if (draw_static() < 0) { was_fg = 1; sys_yield(); continue; }
         }
         int changed = draw_console(con);    /* diff-based: only changed cells redraw */
+        if (changed < 0) { sys_yield(); continue; }   /* a program took the screen */
         uint32_t up = sys_uptime();
         if (changed) last_act = up;          /* the console moved -> the OS is busy */
         int active = (up - last_act) < 9;    /* ...for the next ~0.5 s */
@@ -710,8 +732,7 @@ int gui_main(void) {
         /* the spinner is the biggest draw of a frame: look again first, so a
          * program that took the screen meanwhile does not get it painted over */
         if (SPIN_ON && na != ang) {
-            sys_console(con);
-            if (con[2] || con[3] != gen) continue;
+            if (screen_taken()) continue;
             ang = na; draw_spinner(ang);
         }
         /* on virtio-gpu, push the rendered frame to the scanout (~18 fps; the
