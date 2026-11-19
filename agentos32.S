@@ -7978,16 +7978,8 @@ wa_noprog:
     sub wt_start, %ecx
     cmp $WAIT_BUDGET, %ecx
     jae wa_timeout
-    mov kb_tail, %al             # ESC / Ctrl+C: abort the chain
-    cmp kb_head, %al
-    je wa_z
-    movzbl kb_tail, %eax
-    movzwl kbuf(,%eax,2), %eax
-    cmp $0x1b, %al
-    je wt_abort
-    cmp $3, %al
-    je wt_abort
-wa_z:
+    call kb_abort_key            # ESC / Ctrl+C: abort the chain
+    jc wt_abort
     hlt
     jmp wa_l
 wa_timeout:
@@ -8004,6 +7996,38 @@ wa_timeout:
 #   so the autopilot self-heals (no kill - the agent is persistent). ESC/
 #   Ctrl+C or AGENTOS-ABORT drop the chain.
 #   Example: spawn prime; task prime 100; waittask 0; if 0 = 541 beep
+# kb_abort_key: is there an Escape or Ctrl+C ANYWHERE in the shell's key
+#   buffer? Then drop the buffer up to and including it and return CF=1.
+#   The blocking waits (waittask, waitall, wait) used to look only at the
+#   OLDEST key: a 'q' typed first (or any stray key) sat in front of the
+#   Escape forever and an unserved 'waittask' could not be left (v2.88).
+#   Other type-ahead stays queued when no abort key is found. Keeps all regs.
+kb_abort_key:
+    push %eax
+    push %ebx
+    movzbl kb_tail, %ebx
+kba_l:
+    cmp kb_head, %bl
+    je kba_no
+    movzwl kbuf(,%ebx,2), %eax
+    inc %bl
+    and $63, %bl
+    cmp $0x1b, %al
+    je kba_hit
+    cmp $3, %al
+    jne kba_l
+kba_hit:
+    mov %bl, kb_tail             # consume everything up to the abort key
+    pop %ebx
+    pop %eax
+    stc
+    ret
+kba_no:
+    pop %ebx
+    pop %eax
+    clc
+    ret
+
 do_waittask:
     mov arg_ptr, %esi
     call skip_spaces
@@ -8033,25 +8057,11 @@ wt_have_base:
     sub %eax, %ecx
     cmp $WAIT_BUDGET, %ecx
     jae wt_timeout
-    mov kb_tail, %al             # ESC / Ctrl+C: abort wait AND the chain
-    cmp kb_head, %al
-    je wt_z
-    push %ebx
-    movzbl kb_tail, %ebx
-    movzwl kbuf(,%ebx,2), %eax
-    pop %ebx
-    cmp $0x1b, %al
-    je wt_abort
-    cmp $3, %al
-    je wt_abort
-wt_z:
+    call kb_abort_key            # ESC / Ctrl+C anywhere in the type-ahead:
+    jc wt_abort                  #   abort the wait AND the chain
     hlt                          # agents keep running meanwhile
     jmp wt_l
 wt_abort:
-    mov kb_tail, %al
-    inc %al
-    and $63, %al
-    mov %al, kb_tail
     movl $0, pending_ptr
     movl $0, rep_count
     mov $msg_chain_abort, %esi
@@ -8093,25 +8103,11 @@ wait_l:
     sub wd_start(,%ebx,4), %eax  #   sys_progress) for WAIT_BUDGET -> it's stuck.
     cmp $WAIT_BUDGET, %eax        #   A legit slow LLM call heartbeats via recv_tcp,
     jae wait_timeout             #   so it never trips this.
-    mov kb_tail, %al             # ESC / Ctrl+C: abort wait AND the chain
-    cmp kb_head, %al
-    je wait_z
-    push %ebx
-    movzbl kb_tail, %ebx
-    movzwl kbuf(,%ebx,2), %eax
-    pop %ebx
-    cmp $0x1b, %al
-    je wait_abort
-    cmp $3, %al
-    je wait_abort
-wait_z:
+    call kb_abort_key            # ESC / Ctrl+C: abort wait AND the chain
+    jc wait_abort
     hlt                          # programs/agents keep running meanwhile
     jmp wait_l
 wait_abort:
-    mov kb_tail, %al
-    inc %al
-    and $63, %al
-    mov %al, kb_tail
     movl $0, pending_ptr
     movl $0, rep_count           # a 'repeat' loop dies with its chain
     mov $msg_chain_abort, %esi
