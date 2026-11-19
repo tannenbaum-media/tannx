@@ -5094,8 +5094,14 @@ run_keepkeys:
     mov $msg_run_l, %esi         # announce BEFORE the thread can run: printed
     call puts                    #   after, a fast program's first SYS_WRITE could
     pop %ecx                     #   land in the middle of this line on serial
+    call draw_status             # BEFORE the thread can run: drawn after, a slow
+                                 #   status line (v86: ~80 rendered cells) was
+                                 #   preempted by gui/forest, which painted their
+                                 #   scene - and then the rest of the line landed on
+                                 #   it, because the caller sets compositor_active
+                                 #   only once run_start returns. The thread count
+                                 #   catches up on the next 1 s tick.
     movb $1, tcb_state(%ecx)     # LAST: now the scheduler sees the thread
-    call draw_status
     mov $1, %eax                 # started OK -> return success (EAX=1)
     ret
 

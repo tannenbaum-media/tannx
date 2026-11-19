@@ -424,6 +424,10 @@ belong on an untrusted network. Details and reporting: `SECURITY.md`.
   vgpu, nvme, xhci) keeps the loop busy too (`kg_drivers`): QEMU's HDA
   model ran its DMA at about half speed while the vCPU sat in hlt, and
   test-rec/test-synth caught the stalled playback.
+- Draw before you publish a thread. `run_start` drew the status line
+  after `tcb_state = 1`; under v86 the slow draw was preempted, the new
+  compositor painted its scene, and the rest of the line landed on it,
+  because `compositor_active` is set only after run_start returns.
 - For storage, prove that the bytes land in the host backing file and
   round-trip through host tools (mtools, curl). For graphics, compare
   screendumps. For sound, assert DMA progress (CIV/PICB, LPIB) because the
