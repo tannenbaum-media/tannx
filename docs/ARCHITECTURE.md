@@ -413,6 +413,17 @@ belong on an untrusted network. Details and reporting: `SECURITY.md`.
   up on hardware you cannot see (AHCI, RTL8168).
 - A routine called from the idle loop interrupts arbitrary shell code and
   must preserve every register (the USB keyboard EDI clobber).
+- The idle loop hlts unless it must poll. Busy-polling for a PS/2 mouse
+  whose IRQ12 never fires (the test PC's BIOS USB-legacy
+  emulation) cost a whole host core at an idle prompt in QEMU and v86.
+  Since v2.88 `mouse_irq_probe` asks at boot whether IRQ12 fires (it
+  re-sends 0xF4 and waits for the ACK interrupt); only without that proof,
+  or with EHCI HID armed, the loop busy-polls. `mouse_irq_watch` revokes
+  the proof for good when an aux byte sits uncollected for two ticks.
+  A runnable program that mapped device MMIO (SYS_MMIO_MAP: the HDA apps,
+  vgpu, nvme, xhci) keeps the loop busy too (`kg_drivers`): QEMU's HDA
+  model ran its DMA at about half speed while the vCPU sat in hlt, and
+  test-rec/test-synth caught the stalled playback.
 - For storage, prove that the bytes land in the host backing file and
   round-trip through host tools (mtools, curl). For graphics, compare
   screendumps. For sound, assert DMA progress (CIV/PICB, LPIB) because the

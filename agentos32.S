@@ -522,6 +522,7 @@ pm_go:
     call mouse_init              # PS/2 mouse + framebuffer cursor (if present)
     HWM 0x78
     sti                          # interrupts on - now we are an OS
+    call mouse_irq_probe         # does IRQ12 fire? decides hlt vs busy-poll idle
 
     call logo_palette            # VGA text mode: the brand teals for the logo
     call cls
@@ -5041,6 +5042,7 @@ run_found:
     #   the keyboard: a background start (askd, a script's 'run') under forest
     #   or a game must not throw away that owner's keys. Keys typed after the
     #   command line land in the ring normally, so typed-ahead input survives.
+    btr %ebx, mmio_tids          # a fresh program has mapped no device (yet)
     cmpb $0, fg_prog
     jne run_keepkeys
     mov kr_head, %al
@@ -9558,6 +9560,7 @@ timer_isr:
     call net_poll                # check the network return channel (8 inbox)
     call watchdog_check          # A4: kill agents stuck running too long
 t_curs:
+    call mouse_irq_watch         # IRQ12 trusted but a byte goes stale? back to polling
     call cursor_tick             # draw the cursor LAST, on top of everything
 t_switch:
     call cur_thr      # save the current thread's context
@@ -10377,6 +10380,10 @@ smm_fl:
     mov $PAGE_DIR, %eax
     mov %eax, %cr3               # flush TLB
     mov %ebx, 28(%esp)
+    call cur_thr                 # mark the caller as a polled device driver:
+    dec %ebx                     #   the idle loop stays awake while it runs
+    js sys_out                   #   (kg_idle, mmio_tids; the shell is TID 0)
+    bts %ebx, mmio_tids
     jmp sys_out
 smm_bad:
     movl $0xffffffff, 28(%esp)
@@ -10735,6 +10742,79 @@ mi_fail:
     popal
     ret
 
+# mouse_irq_probe: called once right after the boot 'sti'. Does IRQ12 really
+#   fire on this machine? Re-send "enable data reporting" (0xF4, harmless: it
+#   is already on) and wait up to ~3 ticks for mouse_isr to take the 0xFA ACK
+#   (ms_probe set: the ISR swallows it and sets mouse_irq_ok). Proven -> the
+#   idle loop may hlt; not proven (the test PC: BIOS USB-legacy emulation fills
+#   the 8042 but never raises IRQ12) -> it keeps busy-polling as before, and the
+#   ACK still sitting in the output buffer is dropped here so the poller does
+#   not take 0xFA (sync bit set) for the first byte of a packet.
+mouse_irq_probe:
+    cmpb $0, mouse_present
+    je mip_ret
+    pushal
+    movb $1, ms_probe
+    movb $0xd4, %al              # next byte goes to the mouse
+    call ms_cmd64
+    movb $0xf4, %al
+    call ms_write60
+    mov ticks, %ecx
+    add $3, %ecx                 # ~110-165 ms worst case, ~1 ms when IRQ12 works
+mip_wait:
+    cmpb $0, mouse_irq_ok
+    jne mip_done
+    mov ticks, %eax
+    cmp %ecx, %eax
+    jae mip_done
+    hlt                          # the timer or IRQ12 wakes us (IF=1 here)
+    jmp mip_wait
+mip_done:
+    cli
+    movb $0, ms_probe
+    mov $16, %ecx                # drop an ACK the IRQ never collected (bounded)
+mip_drain:
+    in $0x64, %al
+    cmp $0xff, %al
+    je mip_out
+    and $0x21, %al
+    cmp $0x21, %al               # OBF + aux
+    jne mip_out
+    in $0x60, %al
+    loop mip_drain
+mip_out:
+    sti
+    popal
+mip_ret:
+    ret
+
+# mouse_irq_watch: every timer tick while the idle loop trusts IRQ12. An aux
+#   byte that sits in the 8042 for two ticks in a row (~55-110 ms, IRQ12 is
+#   unmasked) means the interrupt is not delivered after all - hardware whose
+#   emulation answered the probe but drops data IRQs. Then revoke mouse_irq_ok
+#   for good: the idle loop is back to busy-polling (it drains the byte), the
+#   pre-v2.88 behaviour. Runs inside the timer ISR (IF=0), preserves EAX.
+mouse_irq_watch:
+    cmpb $0, mouse_irq_ok
+    je miw_ret
+    push %eax
+    in $0x64, %al
+    cmp $0xff, %al
+    je miw_clr
+    and $0x21, %al
+    cmp $0x21, %al
+    jne miw_clr
+    incb ms_stale
+    cmpb $2, ms_stale
+    jb miw_out
+    movb $0, mouse_irq_ok
+miw_clr:
+    movb $0, ms_stale
+miw_out:
+    pop %eax
+miw_ret:
+    ret
+
 mouse_isr:                       # IRQ12 path (when the controller raises it)
     pushal
     incl mouse_irqs
@@ -10742,6 +10822,11 @@ mouse_isr:                       # IRQ12 path (when the controller raises it)
     test $0x01, %al              #   taken it already - a blind read then returns a
     jz mi_eoi                    #   stale byte and desyncs the 3-byte packets
     in $0x60, %al
+    cmpb $0, ms_probe            # mouse_irq_probe's ACK: proof that IRQ12 fires,
+    je mi_byte                   #   not packet data - swallow it
+    movb $1, mouse_irq_ok
+    jmp mi_eoi
+mi_byte:
     call mouse_byte
 mi_eoi:
     mov $0x20, %al               # EOI to slave then master (IRQ12 is on slave)
@@ -11156,6 +11241,32 @@ pk_full:
     ret
 
 # kgetch: blocks until a key/byte is available. AL=ASCII, AH=scancode.
+# kg_drivers: CF=1 while a runnable ring-3 program has mapped device MMIO
+#   (SYS_MMIO_MAP: the HDA apps rec/synth/voice, vgpu, nvme, xhci...). Those
+#   are polled drivers, and QEMU advances its HDA DMA at roughly half speed
+#   while the vCPU sits in hlt: playback stalled and the capture lagged in
+#   test-rec/test-synth. So with such a program alive the idle loop keeps
+#   busy-polling as before v2.88; everything else may hlt. Keeps all regs.
+kg_drivers:
+    push %eax
+    push %ebx
+    mov $1, %ebx
+kgd_l:
+    cmpb $1, tcb_state(%ebx)
+    jne kgd_n
+    lea -1(%ebx), %eax
+    bt %eax, mmio_tids
+    jc kgd_ret                    # CF=1: found one
+kgd_n:
+    inc %ebx
+    cmp $9, %ebx
+    jb kgd_l
+    clc
+kgd_ret:
+    pop %ebx
+    pop %eax
+    ret
+
 kgetch:
     push %ebx
 kg_wait:
@@ -11223,8 +11334,32 @@ kg_usbauto:
     popal
     jmp kg_wait
 kg_idle:
-    cmpb $0, mouse_present        # with a mouse, busy-poll it (IRQ12 doesn't fire
-    je kg_hlt                     #   on the test PC) so no packet bytes are lost
+    # Three idle modes. No pointer at all: hlt. A PS/2 mouse whose IRQ12 was
+    #   seen firing (mouse_irq_ok, proven by mouse_irq_probe at boot and kept
+    #   honest by mouse_irq_watch on every tick): hlt too - mouse_isr takes
+    #   the bytes - and refresh cursor + hover after each wake-up. Otherwise
+    #   (USB HID armed, or a PS/2 mouse whose IRQ12 never fires, like the test
+    #   PC's BIOS USB-legacy emulation) busy-poll so no packet byte is lost.
+    #   A running ring-3 device driver also keeps us busy (kg_drivers).
+    #   Busy-polling a present-but-idle mouse cost a whole host core under
+    #   v86 and QEMU (~96 % at a bare prompt) - v2.88 made it the exception.
+    cmpb $0, mouse_present
+    je kg_hlt
+    cmpb $0, ehci_hid_active      # EHCI QHs have no interrupt path here: poll
+    jne kg_busy
+    cmpb $0, ehci_kbd_active
+    jne kg_busy
+    cmpb $0, mouse_irq_ok
+    je kg_busy
+    call kg_drivers               # a ring-3 device driver running? stay awake
+    jc kg_busy
+    hlt                           # IRQ12 (or the timer) wakes us
+    cli
+    call cursor_tick              # follow the mouse at IRQ rate, not 18 Hz
+    sti
+    call desk_hover
+    jmp kg_wait
+kg_busy:
     call ehci_hid_poll            # USB HID: drain any pending interrupt report (full
     cli                           #   speed here - the busy loop doesn't hlt)
     call mouse_poll               # atomic vs the timer's own cursor_tick
@@ -20280,6 +20415,10 @@ in_wish:    .byte 0              # 1 = the wish field has keyboard focus
 mouse_btn_prev: .byte 0          # previous left-button state (for press edges)
 .balign 4
 mouse_irqs: .long 0              # IRQ12 count (telemetry: rises when moved)
+mouse_irq_ok: .byte 0            # 1 = IRQ12 proven to fire: the idle loop may hlt
+ms_probe:   .byte 0              # 1 = mouse_irq_probe waits for its ACK (ISR swallows it)
+ms_stale:   .byte 0              # ticks an aux byte sat uncollected (mouse_irq_watch)
+mmio_tids:  .long 0              # bit TID-1: that program mapped device MMIO (kg_drivers)
 mouse_pkts: .long 0              # complete mouse packets (telemetry)
 poll_aux:   .long 0              # 8042 bytes seen with the aux flag (mouse)
 poll_kbd:   .long 0              # 8042 bytes seen without it (diagnostic)
