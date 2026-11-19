@@ -89,7 +89,8 @@ static const uint8_t FONT_DATA[][8] = {
 
 /* ---- framebuffer geometry (filled by snake_main) --------------------- */
 static fb_t fb;
-static int  cs;            /* cell size in pixels                         */
+static int  cs;            /* cell width in pixels (0 = no framebuffer)   */
+static int  ch;            /* cell height: 2 * cs, the 8x16 text-cell aspect */
 static int  ox, oy;        /* top-left of the grid inside the screen      */
 
 /* HUD text via the shared 8x8 renderer in libc, with our own font table */
@@ -104,27 +105,27 @@ static void dec5(char *buf, int v) {
 
 /* ---- one cell -> one block in the framebuffer ------------------------ */
 static void draw_cell(int col, int row) {
-    int px = ox + col * cs, py = oy + row * cs;
+    int px = ox + col * cs, py = oy + row * ch;
     unsigned char k = board[row * GW + col];
     uint32_t bg = (row >= 2 && row <= 24 && col >= 0 && col <= 79)
                   ? COL_BG : COL_OUT;
-    if (k == WALL) { fb_fillrect(&fb, px, py, cs, cs, COL_WALL); return; }
-    fb_fillrect(&fb, px, py, cs, cs, bg);
+    if (k == WALL) { fb_fillrect(&fb, px, py, cs, ch, COL_WALL); return; }
+    fb_fillrect(&fb, px, py, cs, ch, bg);
     if (k == SNAKE) {
         uint32_t c = (col == head_col && row == head_row) ? COL_HEAD : COL_SNAKE;
-        fb_fillrect(&fb, px + 1, py + 1, cs - 2, cs - 2, c);
+        fb_fillrect(&fb, px + 1, py + 1, cs - 2, ch - 2, c);
     } else if (k == FOOD) {
-        int q = cs / 4;
-        fb_fillrect(&fb, px + q, py + q, cs - 2 * q, cs - 2 * q, COL_FOOD);
+        int q = cs / 6;                       /* a square apple in the tall cell */
+        fb_fillrect(&fb, px + q, py + (ch - (cs - 2 * q)) / 2, cs - 2 * q, cs - 2 * q, COL_FOOD);
     }
 }
 
 /* ---- HUD: SCORE and LEN, redrawn only when they change --------------- */
 static void draw_hud(void) {
     int sc = cs / 8; if (sc < 1) sc = 1;
-    int y = oy + cs / 2;
+    int y = oy + ch / 2;
     /* clear the HUD strip (rows 0..1 of the grid) */
-    fb_fillrect(&fb, ox, oy, GW * cs, cs * 2, COL_OUT);
+    fb_fillrect(&fb, ox, oy, GW * cs, ch * 2, COL_OUT);
     char num[6];
     int x = ox + cs;
     draw_str(x, y, "SCORE", sc, COL_SCORE); x += 6 * 7 * sc;
@@ -173,7 +174,7 @@ static void banner(const char *s, int row, uint32_t col) {
     int sc = cs / 6; if (sc < 1) sc = 1;
     int w = strlen(s) * 7 * sc;
     int x = ox + (GW * cs - w) / 2;
-    int y = oy + row * cs;
+    int y = oy + row * ch;
     draw_str(x, y, s, sc, col);
 }
 
@@ -221,10 +222,14 @@ int snake_main(void) {
          * kernel kept painting its status line, the desktop panel values and
          * console text over the board (the launcher only takes the keyboard) */
         sys_kbgrab();
-        int sx = (int)fb.w / GW, sy = (int)fb.h / GH;
+        /* 1:2 cells like invaders (and like the text-mode original): an
+         * 80x25 grid of square cells filled only the middle third of a 16:10
+         * screen with a tiny snake (v2.88); tall cells fill it */
+        int sx = (int)fb.w / GW, sy = (int)fb.h / (2 * GH);
         cs = sx < sy ? sx : sy; if (cs < 2) cs = 2;
+        ch = 2 * cs;
         ox = ((int)fb.w - GW * cs) / 2;
-        oy = ((int)fb.h - GH * cs) / 2;
+        oy = ((int)fb.h - GH * ch) / 2;
     }
 
     rnd_seed = sys_uptime() ^ 0xACE1;
