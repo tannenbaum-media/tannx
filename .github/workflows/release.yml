@@ -23,11 +23,21 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            binutils gcc gcc-multilib make python3 qemu-system-x86 \
+            binutils gcc gcc-multilib make python3 python3-pil qemu-system-x86 \
             netcat-openbsd mtools dosfstools fdisk
 
+      # python3-pil above: without it user/mkmjpeg.py cannot draw the video
+      # clip and the Makefile ships an empty one (v2.88's release image had
+      # no clip at LBA 1024). The toolchain versions and the hashes of the
+      # parts go into the log, so a local build can be compared piece by
+      # piece: the kernel is pure gas and matches byte for byte; user.bin
+      # only matches with the same gcc/binutils build.
       - name: Build images
-        run: make agentos32.img uefi.img hybrid.img
+        run: |
+          make agentos32.img uefi.img hybrid.img
+          gcc --version | head -1; ld --version | head -1; as --version | head -1
+          python3 -c "import PIL; print('PIL', PIL.__version__)"
+          sha256sum kernel32.bin user.bin video.mjpg BOOTX64.EFI
 
       - name: Smoke test
         run: make test32

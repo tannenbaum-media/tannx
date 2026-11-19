@@ -19,11 +19,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            binutils gcc gcc-multilib make python3 \
+            binutils gcc gcc-multilib make python3 python3-pil \
             qemu-system-x86 netcat-openbsd mtools dosfstools
 
       - name: Build
-        run: make agentos32.img
+        run: |
+          make agentos32.img
+          gcc --version | head -1; ld --version | head -1
+          sha256sum agentos32.elf user.bin video.mjpg
 
       # Headless QEMU suites that need no OVMF, no host network services
       # and no LLM backend. The full 49-suite gate is `make test-all`.
