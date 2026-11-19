@@ -662,6 +662,8 @@ int gui_main(void) {
     draw_static();
     uint32_t last_sec = 0xffffffff, last_act = 0, last_present = 0xffffffff;
     int ang = -1, was_fg = 0;
+    sys_console(con);
+    unsigned char gen = con[3];           /* kernel repaint generation (see below) */
 
     for (;;) {
         sys_console(con);
@@ -670,6 +672,11 @@ int gui_main(void) {
             sys_yield();
             continue;
         }
+        /* con[3] moves whenever the screen came back from a full-screen owner
+         * (fg_release, the kernel's gfx). A short-lived app can come and go
+         * between two of our polls - without the generation we never saw
+         * con[2] set and left its last frame on screen. */
+        if (con[3] != gen) { gen = con[3]; was_fg = 1; }
         if (was_fg) {                        /* the game just exited - reclaim the screen */
             was_fg = 0;
             /* the game is the same user.bin image at 0x400000, so its crt0 zeroed
@@ -700,7 +707,13 @@ int gui_main(void) {
         /* P4: the icosahedron spins twice as fast while an agent works - a
          * clear live "the OS is thinking" cue (motion, not just brightness). */
         int na = (int)((up * (g_busy ? 6 : 3)) & 255);
-        if (SPIN_ON && na != ang) { ang = na; draw_spinner(ang); }
+        /* the spinner is the biggest draw of a frame: look again first, so a
+         * program that took the screen meanwhile does not get it painted over */
+        if (SPIN_ON && na != ang) {
+            sys_console(con);
+            if (con[2] || con[3] != gen) continue;
+            ang = na; draw_spinner(ang);
+        }
         /* on virtio-gpu, push the rendered frame to the scanout (~18 fps; the
          * firmware-FB path needs no present - writes land on screen directly) */
         if (vgpu_on && up != last_present) { vgpu_present(); last_present = up; }

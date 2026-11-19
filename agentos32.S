@@ -3838,6 +3838,9 @@ gl_go:
     test %eax, %eax              # run_start failed (no free slot)? then DON'T grab input -
     jz gl_nostart                #   a stuck fg_prog with no game to clear it wedges the kbd
     movb $1, fg_prog             # the game owns the keyboard until it exits/dies
+    movzbl runprog_slot, %eax    #   and fx_release answers only to the game itself
+    inc %eax                     #   (TID = slot + 1)
+    mov %al, fg_tid
 gl_nostart:
     jmp shell
 sa_snake:    .asciz "snake"
@@ -3899,6 +3902,9 @@ df_go:
     cmp $sa_forest, %esi
     jne do_wait                  # fetch: block like 'wait' so the prompt follows the card
     movb $1, fg_prog             # forest owns the keyboard until it exits/dies
+    movzbl runprog_slot, %eax
+    inc %eax
+    mov %al, fg_tid              # (TID = slot + 1: the keyboard's owner)
     cmpb $0, compositor_active   # and the whole framebuffer: borrow the compositor
     jne df_done                  #   gate so the kernel stops mirroring console
     movb $1, compositor_active   #   cells, the panel and the status line over the
@@ -3923,6 +3929,12 @@ sa_forest:  .asciz "forest"
 #   Idempotent: the gate is cleared once, fg_release is a no-op on fg_prog 0.
 fx_release:
     push %eax
+    movzbl fg_tid, %eax          # the keyboard belongs to one thread (fg_tid). Any
+    test %eax, %eax              #   other thread that exits or is killed - an agent
+    jz fxr_gate                  #   the tour kills, a background 'run' - must not
+    cmp %ebx, %eax               #   hand it back. Under gui fb_owner is 0, so before
+    jne fxr_keep                 #   v2.89 such an exit released the tour's keyboard.
+fxr_gate:
     movzbl fb_owner, %eax
     test %eax, %eax
     jz fxr_go
@@ -4045,6 +4057,27 @@ do_gfx:
     call puts
     jmp shell
 dgx_go:
+    # Own the framebuffer while the demo is up: kfb_busy makes gui step aside
+    #   (SYS_CONSOLE byte 2), and without gui the borrowed compositor gate stops
+    #   the status line and the desktop panels from painting over the canvas.
+    #   Before v2.89 the circles stayed as the desktop background after a key
+    #   (cls only cleared the console) and under gui they were never repainted.
+    movb $1, kfb_busy
+    xor %eax, %eax
+    cmpb $0, compositor_active
+    jne dgx_comp
+    movb $1, compositor_active
+    inc %eax                     # remember: we borrowed the gate
+    jmp dgx_own
+dgx_comp:
+    mov ticks, %ebx              # gui runs: give it two ticks to see kfb_busy and
+    add $2, %ebx                 #   stop drawing before the canvas goes up
+dgx_settle:
+    hlt
+    cmp ticks, %ebx
+    ja dgx_settle
+dgx_own:
+    push %eax
     xor %eax, %eax               # full black canvas
     xor %ebx, %ebx
     mov fb_w, %ecx
@@ -4083,7 +4116,14 @@ dgx_ring:
     jl dgx_ring
 dgx_wait:
     call kgetch                  # any key -> back to the shell
-    call cls
+    pop %eax
+    movb $0, kfb_busy
+    incb fb_gen                  # gui: repaint the whole scene
+    test %eax, %eax
+    jz dgx_out
+    movb $0, compositor_active   # our borrowed gate: hand it back, then the
+    call screen_repaint          #   kernel desktop + a clean console
+dgx_out:
     jmp shell
 
 # --- calc <expr>: integer calculator. + - * / and ( ) with precedence and
@@ -10035,9 +10075,13 @@ sys_console:
     mov %al, (%ebx)
     movzbl cur_y, %eax
     mov %al, 1(%ebx)
-    movzbl fg_prog, %eax         # byte 2 = a foreground game owns the screen?
-    mov %al, 2(%ebx)             #   the compositor steps aside (stops drawing) so
-    movb $0, 3(%ebx)             #   the game has the FB; redraws when it exits
+    movzbl fg_prog, %eax         # byte 2 = a foreground game (or the kernel's own
+    or kfb_busy, %al             #   'gfx') owns the screen? the compositor steps
+    mov %al, 2(%ebx)             #   aside (stops drawing) so it has the FB
+    movzbl fb_gen, %eax          # byte 3 = repaint generation: bumped whenever the
+    mov %al, 3(%ebx)             #   screen came back from such an owner - a change
+                                 #   means "repaint everything", even when the
+                                 #   compositor never saw byte 2 set
     mov $CONSOLE_SHADOW, %esi     # the readable mirror, not graphics-mode 0xB8000
     lea 4(%ebx), %edi
     mov $1000, %ecx              # 4000 bytes = 1000 dwords
@@ -10179,9 +10223,10 @@ ssi_nopxe:
 #   gate, the grab just shares it and releases nothing on exit.
 sys_kbgrab:
     movb $1, fg_prog
+    call cur_thr                 # EBX = TID of the caller: the keyboard's owner
+    mov %bl, fg_tid
     cmpb $0, compositor_active
     jne skg_done
-    call cur_thr                 # EBX = TID of the caller
     mov %bl, fb_owner
     movb $1, compositor_active
 skg_done:
@@ -19322,11 +19367,16 @@ fg_release:
     cmpb $0, fg_prog
     je fgr_ret
     movb $0, fg_prog
+    movb $0, fg_tid
+    incb fb_gen                  # tell the compositor (gui) to repaint everything
     call screen_repaint
     cmpb $0, fb_active           # the repaint cleared the console - and with it
     je fgr_ret                   #   the "tannx> " the shell printed when the
-    cmpb $0, compositor_active   #   program started. A lone Enter for the idle
-    jne fgr_ret                  #   shell line brings a fresh prompt back
+                                 #   program started. A lone Enter for the idle
+                                 #   shell line brings a fresh prompt back - under
+                                 #   gui too (v2.89): the console was not cleared
+                                 #   there, but the program's last line ("snake:
+                                 #   quit") sat after the old prompt with none below
     cmpl $0, pending_ptr         #   (not mid-chain: there the next statement
     jne fgr_ret                  #   runs anyway and owns the line)
     push %eax
@@ -20899,6 +20949,9 @@ more_cnt:     .byte 0            # puts_more: rows printed since last pause
 sn_delta:     .long -80, 80, -1, 1   # up, down, left, right (in cells)
 game_gfx:     .byte 0           # 1 = render snake/invaders cells as sprites
 dt_count:     .long 0           # disktest: sectors to read (bounded by IDENTIFY)
+fg_tid:       .byte 0           # TID that owns fg_prog (0 = unknown/none)
+kfb_busy:     .byte 0           # 1 = a kernel command ('gfx') draws the whole FB
+fb_gen:       .byte 0           # repaint generation for the compositor (SYS_CONSOLE[3])
 fg_prog:      .byte 0           # 1 = a ring-3 game owns the keyboard (input -> key_ring only)
 abort_req:    .byte 0           # 1 = AGENTOS-ABORT arrived; do_wait/sh_chain bail out
 game_quit_req:.byte 0           # set by game_pause when q is pressed while paused
