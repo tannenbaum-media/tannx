@@ -14315,6 +14315,21 @@ fbm_loop:
     mov %eax, %cr3               # flush the TLB
     popal
     movb $1, fb_active
+    # The text page 0xB8000 becomes plain RAM. The console, the status line and
+    #   cls/scroll keep writing their char/attr cells there, but in a graphics
+    #   mode the legacy VGA window is VRAM: v86 (and VGA hardware with a banked
+    #   window) put those bytes into the visible framebuffer - the "dashes" at
+    #   x=256, row 19 in every full-screen app and the Dark Glass bar. Remap the
+    #   page onto VGA_TEXT_RAM (supervisor-only, like before: 'task scan b8000'
+    #   still kills the agent) and the writes go nowhere visible.
+    pushal
+    mov $VGA_TEXT_RAM, %edi
+    mov $1024, %ecx
+    xor %eax, %eax
+    rep stosl
+    movl $VGA_TEXT_RAM + 3, PAGE_TABLES + 0xb8 * 4   # present | writable, U=0
+    invlpg 0xb8000
+    popal
     pushal                       # blank the WHOLE screen once: the
     mov fb_ppsl, %ecx            # firmware logo lives outside our
     mov UEFI_INFO+0x14, %eax            # 80x25 grid and would linger forever
@@ -20642,6 +20657,7 @@ mouse_py:   .long 0              # last drawn Y
 .equ EXEC_OUT,        0x135100   # 1400 B captured console output for the reply
 .equ SLOT_RAM,        0x136000   # 17 x 512 B RAM-backed slots (LBA 257-273) for
                                  #   diskless/foreign-disk boots; volatile, zeroed at boot
+.equ VGA_TEXT_RAM,    0x13A000   # 4 KB: what 0xB8000 maps to in a framebuffer mode
 .equ CONSOLE_SHADOW,  0x138200   # readable 80x25 char/attr mirror of the text
                                  #   console (0xB8000 is graphics RAM in LFB mode, not
                                  #   read-back-able) so the ring-3 compositor can render it
