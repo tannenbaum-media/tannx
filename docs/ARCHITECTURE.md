@@ -228,6 +228,12 @@ onto the same codes and delivers a lone Escape as `ESC ESC`, so a program
 behaves the same on the PS/2 keyboard and over the serial console the gate
 drives. `user/ui.h` names them.
 
+**The ring starts empty.** `run_start` sets `kr_tail = kr_head` when no
+foreground program holds the keyboard (v2.88). push_key feeds the ring
+with shell keys too, and before that a `q` or Esc typed at the prompt
+(closing the `help` pager) made the next game, forest or tour quit on
+its first poll.
+
 ### The script engine
 
 `script <slot>` feeds a 512-byte AgentFS slot through the shell's `;`
@@ -264,9 +270,11 @@ Paid-for lessons:
   column made every store a cache miss 10 KB apart: ~500 ms per frame at
   2560x1600 under TCG and the capture ring lapped. Row-contiguous stores
   run at ~70 M px/s; the same frame costs ~25 ms.
-- **The key ring holds the command line.** SYS_GETKEY delivers every byte
-  typed since boot, including `run rec test` itself ('r' started a take,
-  's' saved it). Every foreground app drains the ring before its loop.
+- **The key ring holds the command line.** SYS_GETKEY used to deliver
+  every byte typed since boot, including `run rec test` itself ('r'
+  started a take, 's' saved it). The kernel empties the ring at program
+  start since v2.88; the apps still drain it before their loop, which
+  also drops what was typed while the program loaded.
 - **Console output under a framebuffer app scrolls the framebuffer.** The
   kernel renders console text (and `fb_scroll`s the client area) while a
   ring-3 program owns the screen. The apps print their banner before

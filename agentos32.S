@@ -5033,6 +5033,19 @@ run_found:
     movb $0xff, 3(%edi)
     movw $0, 4(%edi)
     movb $0, 6(%edi)
+    # Start with an empty SYS_GETKEY ring. push_key feeds the ring with every
+    #   key typed at the shell too (the compositor reads it without owning the
+    #   keyboard), and only sys_getkey ever advanced kr_tail - so a 'q' or Esc
+    #   typed at the prompt (closing the help pager) made the NEXT game, forest
+    #   or tour quit on its first poll. Only when no foreground program holds
+    #   the keyboard: a background start (askd, a script's 'run') under forest
+    #   or a game must not throw away that owner's keys. Keys typed after the
+    #   command line land in the ring normally, so typed-ahead input survives.
+    cmpb $0, fg_prog
+    jne run_keepkeys
+    mov kr_head, %al
+    mov %al, kr_tail
+run_keepkeys:
     mov ticks, %eax              # heartbeat baseline so 'wait' can detect a
     mov %eax, wd_start(,%ebx,4)  #   stuck program (no sys_progress for WAIT_BUDGET)
     # synthetic ring-3 frame (same shape as do_spawn) but EIP = the
