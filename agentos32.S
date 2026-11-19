@@ -11433,7 +11433,7 @@ kg_idle:
     je kg_busy
     call kg_drivers               # a ring-3 device driver running? stay awake
     jc kg_busy
-    hlt                           # IRQ12 (or the timer) wakes us
+    call kg_sleep                 # IRQ12 (or the timer, or a key) wakes us
     cli
     call cursor_tick              # follow the mouse at IRQ rate, not 18 Hz
     sti
@@ -11448,8 +11448,30 @@ kg_busy:
     call desk_hover               # WP2: menu / chip hover, dropdown switching
     jmp kg_wait
 kg_hlt:
-    hlt
+    call kg_sleep
     jmp kg_wait
+# kg_sleep: hlt until the next interrupt - unless a key or a click is already
+#   waiting. The checks at kg_wait run with IF=1, so a key whose IRQ landed
+#   between them and a bare hlt slept until the NEXT interrupt (a timer tick
+#   at best). Re-check with interrupts off, then sti;hlt: sti holds interrupts
+#   off for one more instruction, so a pending IRQ is taken only once the CPU
+#   halts - and wakes it. Returns with IF=1.
+kg_sleep:
+    push %eax
+    cli
+    mov kb_tail, %al
+    cmp kb_head, %al
+    jne kgs_out
+    cmpb $0, click_pending
+    jne kgs_out
+    sti
+    hlt
+    pop %eax
+    ret
+kgs_out:
+    sti
+    pop %eax
+    ret
 kg_have:
     movzbl kb_tail, %ebx
     movzwl kbuf(,%ebx,2), %eax
