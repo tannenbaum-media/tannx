@@ -13534,6 +13534,36 @@ ata_init:
     pop %eax
     ret
 
+# ata_recover: software reset of the primary channel (SRST in the device
+#   control register), then wait for BSY to clear (bounded). Called after a
+#   failed read/write: v86's IDE model answers an out-of-range read with
+#   status 0xFF and keeps it until a reset, and real drives can be left with
+#   ERR/BSY by a bad command. On a box without legacy IDE the writes go
+#   nowhere and the floating 0xFF status ends the wait at once. nIEN stays
+#   set (we poll). Preserves all registers; CF is undefined.
+ata_recover:
+    push %eax
+    push %ecx
+    push %edx
+    mov $0x3f6, %dx
+    mov $0x06, %al               # SRST | nIEN
+    out %al, %dx
+    mov $8, %ecx                 # hold it >= 5 us (port 0x80 writes, ~1 us each)
+arc_d1:
+    outb %al, $0x80
+    loop arc_d1
+    mov $0x02, %al               # release SRST, keep nIEN
+    out %al, %dx
+    mov $8, %ecx
+arc_d2:
+    outb %al, $0x80
+    loop arc_d2
+    call ata_wait_rdy            # BSY clear (or 0xFF: nothing there)
+    pop %edx
+    pop %ecx
+    pop %eax
+    ret
+
 # ata_wait_flush: ata_wait_rdy with ~64x the patience. FLUSH CACHE is the
 #   one command whose BSY time is the HOST's: under QEMU it is an fdatasync
 #   of the image file, which on a loaded box outlasts 64K status reads and
@@ -13688,6 +13718,10 @@ ar_phys:
     rep insw
     clc
 ar_out:
+    jnc ar_ok
+    call ata_recover             # a failed read must not poison the next one
+    stc
+ar_ok:
     pop %edi
     pop %edx
     pop %ecx
@@ -13995,9 +14029,37 @@ nd_no:
 # --- disktest: read 4000 sectors (2 MB) from the primary master,
 #   count read errors and time it (RDTSC + ticks) for a MB/s figure.
 do_disktest:
+    # Read up to 4000 sectors (2 MB), but never past the end of the disk:
+    #   IDENTIFY words 60-61 give the LBA28 size. The v86 demo boots a 1.44 MB
+    #   image as the IDE disk; reading LBA 2880+ there made the emulated drive
+    #   answer status 0xFF, which the driver took for "no drive" - and every
+    #   later read (diskon, wishes, run) failed until a reboot (v2.88).
+    mov $4000, %ebx              # EBX = sectors to read
+    push %ebx
+    mov $0xa0, %bl
+    call ata_identify            # fs_buf = IDENTIFY block, CF=1 if none
+    pop %ebx
+    jc dt_size
+    mov fs_buf+120, %eax         # words 60-61: user-addressable sectors
+    test %eax, %eax
+    jz dt_size
+    cmp %ebx, %eax
+    jae dt_size
+    mov %eax, %ebx
+dt_size:
+    mov %ebx, dt_count
     mov $0x0e, %al
-    mov $msg_dt1, %esi
+    mov $msg_dt1, %esi           # "Disk test: reading "
     call putsc
+    mov %ebx, %eax
+    call print_dec32
+    mov $msg_dt1b, %esi          # " sectors ("
+    call puts
+    mov %ebx, %eax
+    shr $1, %eax                 # sectors -> KB
+    call print_dec32
+    mov $msg_dt1c, %esi          # " KB)\r\n"
+    call puts
     xor %ebp, %ebp               # EBP = read error count
     mov ticks, %eax
     mov %eax, ct_ticks0
@@ -14012,29 +14074,34 @@ dt_ok:
     inc %ebx
     test $0x1ff, %ebx            # update the bar every 512 sectors (256 KB)
     jnz dt_more
-    mov %ebx, %eax               # percent = LBA * 100 / 4000 = LBA / 40
+    mov %ebx, %eax               # percent = LBA * 100 / count
+    imul $100, %eax, %eax
     xor %edx, %edx
-    mov $40, %ecx
-    div %ecx
+    divl dt_count
     call draw_bar
 dt_more:
-    cmp $4000, %ebx
+    cmp dt_count, %ebx
     jb dt_loop
-    mov ticks, %eax              # elapsed ticks -> seconds*10 for KB/s
+    mov ticks, %eax              # elapsed ticks -> KB/s
     sub ct_ticks0, %eax
     mov %eax, ct_ticksd
-    mov $msg_dt2, %esi           # "\r\n  2 MB read, errors: "
+    mov $msg_dt2, %esi           # "\r\n  "
+    call puts
+    mov dt_count, %eax
+    shr $1, %eax
+    call print_dec32
+    mov $msg_dt2b, %esi          # " KB read, errors: "
     call puts
     mov %ebp, %eax
     call print_dec32
     mov $msg_dt3, %esi           # ", "
     call puts
-    mov ct_ticksd, %ecx          # KB/s = 2048 KB * 18 / ticks
+    mov ct_ticksd, %ecx          # KB/s = KB * 18 / ticks
     test %ecx, %ecx
     jz dt_fast
-    mov $2048, %eax
-    mov $18, %edx
-    imul %edx, %eax              # 2048*18 (fits)
+    mov dt_count, %eax
+    shr $1, %eax
+    imul $18, %eax, %eax
     xor %edx, %edx
     div %ecx                     # EAX = KB/s
     call print_dec32
@@ -14089,6 +14156,10 @@ aw_phys:
     out %al, %dx
     call ata_wait_flush
 awr_out:
+    jnc awr_ok
+    call ata_recover
+    stc
+awr_ok:
     pop %esi
     pop %edx
     pop %ecx
@@ -20831,6 +20902,7 @@ top_until:    .long 0
 more_cnt:     .byte 0            # puts_more: rows printed since last pause
 sn_delta:     .long -80, 80, -1, 1   # up, down, left, right (in cells)
 game_gfx:     .byte 0           # 1 = render snake/invaders cells as sprites
+dt_count:     .long 0           # disktest: sectors to read (bounded by IDENTIFY)
 fg_prog:      .byte 0           # 1 = a ring-3 game owns the keyboard (input -> key_ring only)
 abort_req:    .byte 0           # 1 = AGENTOS-ABORT arrived; do_wait/sh_chain bail out
 game_quit_req:.byte 0           # set by game_pause when q is pressed while paused
@@ -21804,8 +21876,11 @@ msg_sm_c:       .asciz " C\r\n"
 msg_sm_hours:   .asciz "  Power-on hours:      "
 msg_sm_realloc: .asciz "  Reallocated sectors: "
 msg_sm_pending: .asciz "  Pending sectors:     "
-msg_dt1:        .asciz "Disk test: reading 4000 sectors (2 MB)\r\n"
-msg_dt2:        .asciz "\r\n  2 MB read, errors: "
+msg_dt1:        .asciz "Disk test: reading "
+msg_dt1b:       .asciz " sectors ("
+msg_dt1c:       .asciz " KB)\r\n"
+msg_dt2:        .asciz "\r\n  "
+msg_dt2b:       .asciz " KB read, errors: "
 msg_dt3:        .asciz ", "
 msg_dt_kbs:     .asciz " KB/s\r\n"
 msg_dt_fast:    .asciz "<1 tick (very fast)\r\n"
