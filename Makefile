@@ -580,7 +580,13 @@ test-cast: agentos32.img test-cast.sh llm-proxy.py proxy_ext.py
 test-rain: agentos32.img test-rain.sh
 	./test-rain.sh
 
-test-all: test-hybrid test-smp test-net test-pxe test-ahci test-snake test-llm test-offload test-sound test-script test-llmscript test-autopilot test-hda test-askd test-remote test-netwish test-discovery test-d4 test-gui test-abort test-wait test-persist test-stall test-mission test-vgpu test-nvme test-virtio-net test-virtio-blk test-fatfs test-video-fuzz test-httpd test-usb test-usb-persist test-usb-fat test-usb-load test-fetch test-forest test-chat test-edit test-sysmon test-rec test-synth test-voice test-tour test-www test-files test-shot test-cast test-rain
+test-all: test-hybrid test-smp test-net test-pxe test-ahci test-snake test-llm test-offload test-sound test-script test-llmscript test-autopilot test-hda test-askd test-remote test-netwish test-discovery test-d4 test-gui test-abort test-wait test-persist test-stall test-mission test-vgpu test-nvme test-virtio-net test-virtio-blk test-fatfs test-video-fuzz test-httpd test-usb test-usb-persist test-usb-fat test-usb-load test-fetch test-forest test-chat test-edit test-sysmon test-rec test-synth test-voice test-tour test-www test-files test-shot test-cast test-rain test-recover
+
+# test-recover: getting back out (v2.89) - the help pager's q, Ctrl+C behind a
+# stray key in 'waittask', disktest bounded to the disk, and under gui a fresh
+# prompt after a quit full-screen program + no gfx leftovers (screendumps).
+test-recover: agentos32.img test-recover.sh
+	./test-recover.sh
 
 # test-hw: hardware-in-the-loop - drives the bare-metal test PC over UDP,
 # exercising the RTL8168 path QEMU can't emulate. NOT in test-all: needs the
@@ -612,4 +618,4 @@ distclean: clean
         test-abort test-wait test-persist test-stall test-mission test-vgpu test-nvme test-virtio-net \
         test-virtio-blk test-fatfs test-httpd test-usb test-usb-persist test-usb-fat test-usb-load \
         test-chat test-edit test-sysmon test-rec test-synth test-voice \
-        test-tour test-www test-files test-shot test-cast test-rain
+        test-tour test-www test-files test-shot test-cast test-rain test-recover
