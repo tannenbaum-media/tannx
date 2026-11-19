@@ -145,7 +145,7 @@ int fetch_main(void) {
     int boot = si[13], nic = si[14], armed = si[15];
     uint32_t kbytes = *(uint32_t *)(si + 16);
     uint32_t ticks  = have_si ? *(uint32_t *)(si + 20) : sys_uptime();
-    const char *ver = "v?";                        /* "AgentOS/32 v2.87 " -> "v2.87" */
+    const char *ver = "v?";                        /* "AgentOS/32 v2.88 " -> "v2.88" */
     for (int i = 24; i < 62; i++)
         if (si[i] == 'v' && si[i + 1] >= '0' && si[i + 1] <= '9') { ver = (const char *)si + i; break; }
     for (int i = 24; i < 64; i++) if (si[i] == ' ') si[i] = 0;

@@ -104,8 +104,8 @@ make test-all     # the full headless gate: 49 QEMU suites, all green or no comm
 Just want to look? Boot the release image, no build needed (only QEMU):
 
 ```bash
-curl -LO https://github.com/tannenbaum-media/tannx/releases/download/v2.87/tannx-v2.87-bios.img
-qemu-system-i386 -drive format=raw,file=tannx-v2.87-bios.img -vga std -m 512 \
+curl -LO https://github.com/tannenbaum-media/tannx/releases/download/v2.88/tannx-v2.88-bios.img
+qemu-system-i386 -drive format=raw,file=tannx-v2.88-bios.img -vga std -m 512 \
   -netdev user,id=n0 -device rtl8139,netdev=n0
 ```
 
@@ -181,7 +181,7 @@ TFTP with no disk at all.
 - `autopilot [mission]` closes the loop: ask the model what to do next,
   do it, ask again. ESC or Ctrl+C stops it.
 
-## What is inside (v2.87)
+## What is inside (v2.88)
 
 - **Kernel in GAS** (`agentos32.S`, ~16.8k lines): GDT/IDT, paging with
   NULL guard and fault isolation (#PF/#GP/#UD kill one agent, never the

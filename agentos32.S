@@ -1,5 +1,5 @@
 # =====================================================================
-#  AgentOS/32 v2.87 - a 32-bit x86 kernel in GNU assembler
+#  AgentOS/32 v2.88 - a 32-bit x86 kernel in GNU assembler
 #
 #  One flat source file: stage-1 boot sector, stage-2 real-mode setup,
 #  the protected-mode kernel and its data. The BIOS (or the UEFI stub in
@@ -10087,7 +10087,7 @@ ssi_nopxe:
     mov %eax, 20(%ebx)
     mov $nh_rep_pfx, %esi
     lea 24(%ebx), %edi
-    mov $18, %ecx                # "AgentOS/32 v2.87 " + NUL (18 bytes)
+    mov $18, %ecx                # "AgentOS/32 v2.88 " + NUL (18 bytes)
     rep movsb
     movl $0, 28(%esp)
     jmp sys_out
@@ -17345,7 +17345,7 @@ pn_footer:
     popal
     ret
 
-pn_uptime:                       # "v2.87  127 MB  up 7s  " (opaque, 1x)
+pn_uptime:                       # "v2.88  127 MB  up 7s  " (opaque, 1x)
     pushal
     mov $pn_buf, %edi
     mov $pn_s_ver, %esi
@@ -17558,7 +17558,7 @@ pn_s_wait:  .asciz "wait"
 pn_s_err:   .asciz "error"
 pn_s_dep:   .asciz "dep"
 pn_s_tbm:   .asciz "Tannenbaum Media"
-pn_s_ver:   .asciz "v2.87  "
+pn_s_ver:   .asciz "v2.88  "
 pn_s_mb:    .asciz " MB  up "
 pn_s_spawncmd: .asciz "spawn "
 pn_s_tasks: .asciz "tasks"
@@ -21178,7 +21178,7 @@ nh_rslt_sp2:   .asciz " "
 nh_rslt_eq:    .asciz "="
 nh_rslt_neg:   .asciz "-"
 nh_rslt_err:   .asciz "=ERR"
-nh_rep_pfx:    .asciz "AgentOS/32 v2.87 "
+nh_rep_pfx:    .asciz "AgentOS/32 v2.88 "
 nh_rep_up:     .asciz " up="
 nh_rep_ms:     .asciz " ms="
 nh_rep_irq:    .asciz " pkt="
@@ -21244,7 +21244,7 @@ msg_done3:     .asciz " done = "
 msg_done4:     .asciz "\r\n"
 msg_wd1:       .asciz "\r\n!! Agent ["
 msg_wd2:       .asciz "] watchdog-killed (ran too long).\r\n"
-logm_boot:     .asciz "AgentOS/32 v2.87: boot\r\n"
+logm_boot:     .asciz "AgentOS/32 v2.88: boot\r\n"
 logm_net:      .asciz "net: NIC up\r\n"
 logp_cpu:      .asciz "cpu: "
 logp_cores:    .asciz " cores "
@@ -21360,7 +21360,7 @@ cs_halt:   .asciz "halt"
 cs_poweroff: .asciz "poweroff"
 
 # Status line
-stat_txt1: .asciz " TannX OS v2.87  uptime:"
+stat_txt1: .asciz " TannX OS v2.88  uptime:"
 stat_txt2: .asciz "s  agents:"
 stat_txt_t:.asciz "  open:"
 stat_txt3: .asciz "  threads:"
@@ -21477,7 +21477,7 @@ help_text:
     .asciz "  kbd <de|us>   - keyboard layout (boot default: us)\r\n"
 
 about_text:
-    .ascii "TannX OS v2.87 - PM, multitasking, paging, userspace:\r\n"
+    .ascii "TannX OS v2.88 - PM, multitasking, paging, userspace:\r\n"
     .ascii "  * every agent is its own THREAD with its own stack -\r\n"
     .ascii "    the timer interrupt shares the CPU (preemptive, round-robin)\r\n"
     .ascii "  * own GDT (flat model) + own IDT (256 gates)\r\n"
