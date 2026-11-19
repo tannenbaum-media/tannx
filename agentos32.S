@@ -7392,10 +7392,19 @@ si_done:
 si_nosmb:
     mov $msg_si_nosmb, %esi
     call puts
-si_ramcmos:                      # RAM fallback: CMOS extended memory
-    mov $0x0b, %al
-    mov $msg_si_ram, %esi
+si_ramcmos:                      # RAM fallback: the E820 total (what 'mem' says),
+    mov $0x0b, %al               #   CMOS only when the firmware gave no E820 map
+    mov $msg_si_ram, %esi        #   (CMOS caps at ~64 MB: "64 MB" next to mem's 255)
     call putsc
+    movl (E820_TOTAL), %eax
+    test %eax, %eax
+    jz si_cmos
+    shr $20, %eax
+    call print_dec32
+    mov $msg_si_mbe, %esi
+    call puts
+    jmp si_disks
+si_cmos:
     mov $0x30, %bl
     call cmos_read
     mov %al, %cl
@@ -8777,13 +8786,19 @@ mem_heap:
     call puts
     mov atp_round, %eax
     call print_dec32
+    mov $msg_mem_nomis, %esi     # no mission captured yet: say so (a bare
+    cmpb $0, atp_mission         #   "mission " read like a garbage line)
+    je mem_mis
     mov $msg_mem_mis2, %esi
     call puts
     mov $atp_mission, %esi
+mem_mis:
     call puts
     call crlf
-    mov $ksentinel, %esi         # the last-sector sentinel - proves all
+    mov $msg_mem_ks, %esi        # the last-sector sentinel - proves all
     call puts                    #   256 kernel sectors loaded on this boot path
+    mov $ksentinel, %esi         #   (a short load prints garbage after the label)
+    call puts
 mem_done:
     jmp shell
 
@@ -21954,6 +21969,7 @@ msg_si_dsz2:    .asciz ")"
 msg_si_sp:      .asciz " "
 msg_si_mb:      .asciz " MB"
 msg_si_mbx:     .asciz " MB (approx, CMOS)\r\n"
+msg_si_mbe:     .asciz " MB usable (E820)\r\n"
 msg_si_comma:   .asciz ", "
 msg_si_at:      .asciz " @ "
 msg_si_mhz:     .asciz " MT/s"
@@ -21979,6 +21995,8 @@ msg_mem_heap:   .asciz "  kernel heap: "
 msg_mem_mb:     .asciz " MB\r\n"
 msg_mem_atp:    .asciz "  autopilot round "
 msg_mem_mis2:   .asciz " mission "
+msg_mem_nomis:  .asciz " (no mission yet)"
+msg_mem_ks:     .asciz "  last kernel sector: "
 msg_color_ok:   .asciz "Color set.\r\n"
 msg_color_usage:.asciz "Usage: color <1-f>   (e.g. color b = cyan)\r\n"
 msg_rnd:        .asciz "Random number: "
