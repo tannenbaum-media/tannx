@@ -1,3 +1,70 @@
+# TannX OS v2.89 - getting back out
+
+A maintenance release with the open points from a QA pass of the browser
+demo (v86, https://tannx.dev/try/) and from filming v2.88 on a real
+server. Most of them were ways to get stuck or to be left with a broken
+screen; all of them affect QEMU and real hardware as well.
+
+## Downloads
+
+| File | Boots on | How |
+|---|---|---|
+| `tannx-v2.89-usb-hybrid.img` | BIOS **and** UEFI PCs, QEMU | write raw to a USB stick (`dd`, balenaEtcher, Rufus in DD mode) |
+| `tannx-v2.89-bios.img` | BIOS PCs, QEMU | `qemu-system-i386 -drive format=raw,file=tannx-v2.89-bios.img -vga std -m 512` |
+| `tannx-v2.89-uefi.img` | UEFI only, QEMU + OVMF | `qemu-system-x86_64 -bios OVMF.fd -drive format=raw,file=tannx-v2.89-uefi.img` |
+
+Check the download with `sha256sum -c SHA256SUMS`.
+
+## Fixes
+
+- **A server boots in seconds, not in 80.** On a Supermicro X11DPi
+  (UEFI, Intel C620 SATA) the screen stayed black for ~80 s after the
+  loader. The boot's AHCI self-check sent a CD-ROM command to the SATA
+  disk; the disk refused it, the controller stopped, and the next read
+  waited out a very long timeout. The self-check no longer does that,
+  the AHCI driver restarts the port after any error, and the boot-time
+  read gives up after about a second. Loader to desktop: 80 s -> 2 s.
+- **disktest no longer breaks the disk.** It read a fixed 2 MB, past the
+  end of the 1.44 MB demo disk, and the emulated drive then refused
+  every later read until a reboot (`diskon`, `wishes`, and every program
+  start: `llm`, `llmscript`, `offload`, `hda`, `spawn ask` only printed
+  "hello from ring3"). It now reads at most the disk's size, and the
+  disk driver resets the channel after a failed command. Without a
+  network card those commands say "llm: no NIC / no link" again.
+- **Escape gets you out of a wait.** `waittask`, `waitall` and `wait`
+  only looked at the oldest key typed, so a `q` pressed first hid the
+  Escape behind it and a `waittask` on a task nobody serves could not
+  be left. Escape or Ctrl+C now works wherever it sits.
+- **Dark Glass comes back clean.** After `run tour`, `forest`, the games
+  or `gfx` quit under `gui`, the desktop is fully repainted and the
+  shell prints a fresh prompt. Before, parts of the program's last frame
+  could stay, `gfx` stayed on screen for good, and the prompt only came
+  with the next Enter. Without `gui`, `gfx` now restores the desktop
+  instead of leaving its circles as the background.
+- **No more bright dashes at the top.** In graphics modes the console's
+  old text-mode memory is mapped into the framebuffer by some emulators
+  and graphics cards; the status line showed up there as small dashes in
+  every full-screen app and in the Dark Glass bar. That memory is now
+  plain RAM in graphics modes.
+- **Snake uses the whole screen**, with tall cells like invaders, instead
+  of a thin strip in the middle.
+- **Clearer `mem` and `sysinfo`.** `mem` says "autopilot round 0 (no
+  mission yet)" and labels its last-sector check instead of printing two
+  lines that looked like garbage; `sysinfo` reports the same RAM as
+  `mem` (E820) instead of the 64 MB CMOS estimate.
+- **The help pager.** A key that arrived just before the idle loop went
+  to sleep could wait for the next timer tick (up to 55 ms). The loop now
+  re-checks with interrupts off before it halts.
+- **Release images carry the video clip again.** The release build did
+  not install the Python imaging library, so v2.88's images shipped
+  without the demo clip for `run video`.
+
+Verified in QEMU (the gate, now 50 suites with the new `test-recover`),
+in v86, and the boot-time fix on the Supermicro server. The other fixes
+were not run on real hardware.
+
+---
+
 # TannX OS v2.88 - input and idle fixes
 
 A maintenance release with input, idle and screen fixes found while running TannX in the

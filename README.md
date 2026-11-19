@@ -98,14 +98,14 @@ sudo apt install curl netcat-openbsd tcpdump imagemagick
 
 make              # build agentos32.img (kernel + ring-3 blob + video clip)
 make run32        # boot the live image in QEMU; saves and wishes persist across rebuilds
-make test-all     # the full headless gate: 49 QEMU suites, all green or no commit
+make test-all     # the full headless gate: 50 QEMU suites, all green or no commit
 ```
 
 Just want to look? Boot the release image, no build needed (only QEMU):
 
 ```bash
-curl -LO https://github.com/tannenbaum-media/tannx/releases/download/v2.88/tannx-v2.88-bios.img
-qemu-system-i386 -drive format=raw,file=tannx-v2.88-bios.img -vga std -m 512 \
+curl -LO https://github.com/tannenbaum-media/tannx/releases/download/v2.89/tannx-v2.89-bios.img
+qemu-system-i386 -drive format=raw,file=tannx-v2.89-bios.img -vga std -m 512 \
   -netdev user,id=n0 -device rtl8139,netdev=n0
 ```
 
@@ -181,9 +181,9 @@ TFTP with no disk at all.
 - `autopilot [mission]` closes the loop: ask the model what to do next,
   do it, ask again. ESC or Ctrl+C stops it.
 
-## What is inside (v2.88)
+## What is inside (v2.89)
 
-- **Kernel in GAS** (`agentos32.S`, ~16.8k lines): GDT/IDT, paging with
+- **Kernel in GAS** (`agentos32.S`, ~22k lines): GDT/IDT, paging with
   NULL guard and fault isolation (#PF/#GP/#UD kill one agent, never the
   box), preemptive round-robin multitasking, opt-in **SMP** (INIT-SIPI,
   per-core scheduler, spinlocks around the task tables), one syscall
@@ -196,7 +196,7 @@ TFTP with no disk at all.
   graphics primitives, PS/2 keyboard and mouse, EHCI USB HID, 16550
   serial, PIT/RTC, ATA PIO, **AHCI/SATA + ATAPI**, RTL8139/RTL8168/e1000/
   **virtio-net**, AC97, PC speaker.
-- **Ring-3 C userland** (`user/`, ~5.4k lines, own tiny libc): TCP/IP
+- **Ring-3 C userland** (`user/`, ~10k lines, own tiny libc): TCP/IP
   stack (ARP, IPv4, ICMP, DHCP, DNS, TCP, HTTP client) and an **HTTP
   server** with a live status page and file upload; **NVMe**, **xHCI USB
   mass storage**, **virtio-blk** and **virtio-gpu** drivers; a shared
@@ -300,7 +300,7 @@ you do not own.
 
 ## Tests
 
-`make test-all` runs 49 headless QEMU suites: hybrid BIOS+UEFI boot, SMP
+`make test-all` runs 50 headless QEMU suites: hybrid BIOS+UEFI boot, SMP
 smoke, NIC + pcap, PXE diskless boot, AHCI + ATAPI, userspace TCP/HTTP
 against a host server, httpd, the LLM loop with a mock proxy, llmscript
 and autopilot end to end, the script engine, AC97/HDA DMA progress,

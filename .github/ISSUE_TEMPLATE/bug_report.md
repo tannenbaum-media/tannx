@@ -8,7 +8,7 @@ labels: bug
 <!-- What you did, what you expected, what you saw instead. -->
 
 **Version**
-<!-- The version from the boot banner, e.g. "TannX OS v2.88", and the git commit. -->
+<!-- The version from the boot banner, e.g. "TannX OS v2.89", and the git commit. -->
 
 **Where it runs**
 <!-- QEMU (command line), or real hardware (board, firmware: BIOS/UEFI/PXE). -->

@@ -11,7 +11,7 @@ lessons learned the hard way.
 ## 1. Orientation map
 
 ```
-agentos32.S      the kernel, one file (~16.8k lines of GAS, AT&T syntax):
+agentos32.S      the kernel, one file (~22k lines of GAS, AT&T syntax):
                  Stage 1 boot sector, real-mode prologue, GDT/IDT, paging,
                  scheduler, syscalls, shell, script engine, agent workers,
                  in-kernel drivers (VGA/framebuffer, keyboard, PS/2 mouse,
@@ -22,7 +22,7 @@ agentos-uefi.S   UEFI stage-0: a hand-laid PE32+ (no compiler), loads
                  ExitBootServices, long mode -> protected mode descent
 pxe_stage1.S     512-byte diskless Stage 1 for PXE (pxe.img = stub + kernel)
 linker.ld        flat binary layout for the kernel
-user/            ring-3 C (gcc -m32, freestanding, ~8k lines):
+user/            ring-3 C (gcc -m32, freestanding, ~10k lines):
   crt0.S libc.c libc.h   startup, tiny libc, syscall stubs (INT 0x30)
   appmain.c              dispatch: which program 'run <arg>' starts
   net.c                  ARP/IPv4/ICMP/DHCP/DNS/TCP/HTTP client, httpd,
@@ -116,13 +116,15 @@ All paths end in the same 32-bit kernel at physical 0x7E00.
 0x50000-0x8FFFF  kernel heap (kmalloc/kfree, supervisor-only; relocates to 64 MB
                  on machines with >= 96 MB RAM)
 0x9F000          shell stack (grows down)
-0xB8000          VGA text RAM (supervisor-only: 'task scan b8000' kills the agent)
+0xB8000          VGA text RAM (supervisor-only: 'task scan b8000' kills the agent);
+                 in a VBE/GOP mode the page maps onto RAM at 0x13A000 (VGA_TEXT_RAM)
 0x100000-0x102FFF RTL8168 RX buffers (0x100000) + dmesg ring (0x102000)
 0x103000         PEND_BUF (shell ';' chaining)      0x104000 AC97 BDL
 0x105000-0x133DFF AC97 PCM tone buffer (1 s, 48 kHz, 16-bit stereo)
 0x134000-0x134AFF SCRATCH: tss (8x104) 0x134000, cursor_save_buf 0x134400,
                  fs_buf 0x134800, inbox_buf 0x134A00 - zeroed at boot
 0x136000         SLOT_RAM: RAM-backed AgentFS slots (17 x 512 B) when no medium marker
+0x13A000         VGA_TEXT_RAM: what 0xB8000 maps to in framebuffer modes (v2.89)
 0x13B000-0x13C7FF e1000 TX ring (0x13B000) + TX buffer (0x13C000)
 0x141000+        user stacks of the agent threads, TID n at +n*0x1000 [U=1,W=1]
 0x150000         virtio-net RX/TX virtqueues (free bank 0x149000-0x300000)
@@ -195,8 +197,11 @@ Notable doors: 15 WRITE_SLOT writes AgentFS slots only and is diskon-gated
 (this is how llmscript persists LLM-written scripts); 16 PCI_CFG and 17
 MMIO_MAP (an uncached user 4 MB page, rejected for anything inside mapped
 system RAM) exist so that drivers can live in ring-3 C; 19 CONSOLE copies
-the cursor and the 80x25 text mirror (0xB8000 is write-only graphics RAM
-under VBE/GOP); 20 AGENTS copies agents_tbl + tasks_tbl (192 bytes) for
+the cursor and the 80x25 text mirror (CONSOLE_SHADOW) - byte 2 is set while
+a full-screen owner (fg_prog, or the kernel's `gfx`: kfb_busy) has the
+screen, byte 3 is a repaint generation (fb_gen) that moves every time the
+screen comes back, so the compositor repaints even when it never saw byte
+2 set (v2.89); 20 AGENTS copies agents_tbl + tasks_tbl (192 bytes) for
 the desktop's agent panel; 21/22 read and set the autopilot mission
 telemetry (48-byte slot); 23 SYSINFO copies the read-only facts a ring-3
 system card needs (E820 RAM, cpu_mhz, cpu_count, the console attribute,
@@ -209,7 +214,11 @@ ring and not to the shell's line editor, and takes the framebuffer the same
 way the compositor does (`compositor_active`, so the kernel stops mirroring
 console text and the status line into it). The borrowing thread is recorded
 in `fb_owner` (shared with the `forest` launcher); exit, kill and a fault
-release keyboard and gate only when that thread goes away (`fx_release`). The user-space stubs are in
+release keyboard and gate only when that thread goes away (`fx_release`).
+The keyboard's owner is recorded too (`fg_tid`, set by the launchers and
+KBGRAB): since v2.89 any other thread that exits - an agent the tour kills,
+a background `run` - leaves it alone, also under gui where fb_owner is 0.
+Releasing pushes an Enter for a fresh prompt (also under gui since v2.89). The user-space stubs are in
 `user/libc.h`.
 
 25 FGRAB(1) is the same grab as 24 KBGRAB (one mechanism, one owner in
@@ -437,6 +446,23 @@ belong on an untrusted network. Details and reporting: `SECURITY.md`.
   vgpu, nvme, xhci) keeps the loop busy too (`kg_drivers`): QEMU's HDA
   model ran its DMA at about half speed while the vCPU sat in hlt, and
   test-rec/test-synth caught the stalled playback.
+- Re-check with interrupts off before you halt. kgetch tested the key
+  buffer with IF=1 and then ran `hlt`: a key whose IRQ landed in between
+  slept until the next tick. `kg_sleep` (v2.89) does cli, re-check, sti;
+  hlt - sti delays interrupts by one instruction, so the pending IRQ wakes
+  the halted CPU.
+- An abort key must be found wherever it sits. The blocking waits looked
+  only at the oldest key; a `q` typed first hid the Escape behind it for
+  good. `kb_abort_key` (v2.89) scans the whole buffer.
+- A failed command must not poison the next. v86's IDE model answers a
+  read past the end with status 0xFF until a reset (the 1.44 MB image is
+  its disk; `disktest` read 2 MB) and the driver took that for "no drive".
+  ata_read/ata_write now soft-reset the channel after a failure and
+  disktest is bounded by IDENTIFY.
+- Graphics modes alias the legacy text window. Under v86 (and VGA cards
+  with a banked window) writes to 0xB8000 land in the visible
+  framebuffer; the status line showed as bright dashes at x=256. In a
+  framebuffer mode the page is remapped onto RAM (v2.89).
 - Draw before you publish a thread. `run_start` drew the status line
   after `tcb_state = 1`; under v86 the slow draw was preempted, the new
   compositor painted its scene, and the rest of the line landed on it,

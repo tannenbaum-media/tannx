@@ -19,7 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from cp437 import EXTRA  # noqa: E402
 
-VERSION = "v2.88"
+VERSION = "v2.89"
 # The wordmark: W_A in white, W_B in the aurora teal ("Tann" + "X").
 W_A, W_B = "Tann", "X"
 TAGLINE = "Plant a wish. The agents grow it."
@@ -223,7 +223,7 @@ def big_width(gap_words=0):
 
 
 def credit(cv, x, row):
-    """'made by Tannenbaum Media  v2.88' - returns end x."""
+    """'made by Tannenbaum Media  v2.89' - returns end x."""
     cv.text(x, row, "made by ", DGRY)
     cv.text(x + 8, row, MADEBY[8:], LGRY)
     cv.text(x + len(MADEBY) + 2, row, VERSION, TEAL_L)

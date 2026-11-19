@@ -4,7 +4,7 @@ Thanks for looking. TannX OS is small on purpose, so the rules are short.
 
 - **One change per commit.** A commit does one thing and its message
   says why. Keep refactors and features apart.
-- **`make test-all` must be green** before you commit. The gate is 49
+- **`make test-all` must be green** before you commit. The gate is 50
   headless QEMU suites and takes several minutes; run a single suite
   (`make test-script`, `make test-usb-fat`, ...) while iterating and the
   whole gate before you push. Add a check to the gate for anything you
