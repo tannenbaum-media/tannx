@@ -8,9 +8,10 @@
  * kernel for byte-identical mechanics - but it renders the real 8x16 sprite
  * bitmaps scaled up to fill 1:2 cells, straight into the framebuffer.
  *
- * Launch: 'run invaders'. Controls: A/D move, SPACE fire, P pause, Q quit.
- * (Arrows can't reach ring 3 - the kernel only feeds printable ASCII to the
- *  SYS_GETKEY ring - so A/D/SPACE is the control set, as on serial.)
+ * Launch: 'invaders' or 'run invaders'. Controls: Left/Right arrows or A/D
+ * move, SPACE fire, P pause, Q/Esc quit. The arrows arrive as KEY_LEFT /
+ * KEY_RIGHT (0x80|scancode, libc.h) from the PS/2 keyboard and the serial
+ * ESC-[ decoder alike; A/D stay for terminals that send neither.
  *
  * Sound (the kernel's PC-speaker blips) is intentionally absent for now:
  * ring 3 can't touch port 0x61 and there is no SYS_BEEP syscall yet. It
@@ -323,8 +324,8 @@ int invaders_main(void) {
                 if (cw) { memset(prv, 0xff, sizeof(prv)); fb_fillrect(&fb,0,0,(int)fb.w,(int)fb.h,0); render(); }
                 t0 = sys_uptime();
             }
-            else if (k == 'a') { ship_col -= 2; if (ship_col < 1) ship_col = 1; }
-            else if (k == 'd') { ship_col += 2; if (ship_col > 78) ship_col = 78; }
+            else if (k == 'a' || k == KEY_LEFT) { ship_col -= 2; if (ship_col < 1) ship_col = 1; }
+            else if (k == 'd' || k == KEY_RIGHT) { ship_col += 2; if (ship_col > 78) ship_col = 78; }
             else if (k == ' ') fire();
             sys_yield();
         } while (sys_uptime() - t0 < 1);

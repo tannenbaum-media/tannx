@@ -247,8 +247,8 @@ int www_main(const char *arg) {
             continue;
         }
         if (k == DUI_KEY_BS || k == 127) { if (numlen) { numbuf[--numlen] = 0; draw_footer(); continue; } k = 'h'; }
-        if (k == 'j' || k == 's') { if (top + 1 < nlines) top++; }
-        else if (k == 'k' || k == 'w') { if (top > 0) top--; }
+        if (k == 'j' || k == 's' || k == KEY_DOWN) { if (top + 1 < nlines) top++; }
+        else if (k == 'k' || k == 'w' || k == KEY_UP) { if (top > 0) top--; }
         else if (k == ' ' || k == 'f') { top += pageh - 1; if (top >= nlines) top = nlines ? nlines - 1 : 0; }
         else if (k == 'b') { top -= pageh - 1; if (top < 0) top = 0; }
         else if (k == 'h') {

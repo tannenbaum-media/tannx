@@ -200,8 +200,8 @@ static void viewer(int idx) {
         dui_footer(f);
         int k = dui_getkey();
         if (k == 'q' || k == DUI_KEY_ESC) break;
-        if ((k == 'j' || k == 's') && top2 + 1 < total) top2++;
-        else if ((k == 'k' || k == 'w') && top2 > 0) top2--;
+        if ((k == 'j' || k == 's' || k == KEY_DOWN) && top2 + 1 < total) top2++;
+        else if ((k == 'k' || k == 'w' || k == KEY_UP) && top2 > 0) top2--;
         else if (k == ' ' || k == 'f') { top2 += rows - 1; if (top2 >= total) top2 = total ? total - 1 : 0; }
         else if (k == 'b') { top2 -= rows - 1; if (top2 < 0) top2 = 0; }
     }
@@ -226,8 +226,8 @@ int files_main(void) {
     for (;;) {
         int k = dui_getkey();
         if (k == 'q' || k == DUI_KEY_ESC) break;
-        if ((k == 'j' || k == 's' || k == 'n') && sel + 1 < nents) sel++;
-        else if ((k == 'k' || k == 'w' || k == 'p') && sel > 0) sel--;
+        if ((k == 'j' || k == 's' || k == 'n' || k == KEY_DOWN) && sel + 1 < nents) sel++;
+        else if ((k == 'k' || k == 'w' || k == 'p' || k == KEY_UP) && sel > 0) sel--;
         else if ((k == DUI_KEY_ENTER || k == '\n' || k == 'o') && nents && !ents[sel].dir) viewer(sel);
         else if (k == 'r') rescan();
         else if (k == 'd' && nents && !ents[sel].dir) {

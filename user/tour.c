@@ -259,13 +259,13 @@ int tour_main(void) {
     for (;;) {
         int k = dui_getkey();
         if (k == 'q' || k == DUI_KEY_ESC) break;
-        if (k == 'n' || k == ' ' || k == DUI_KEY_ENTER || k == '\n') {
+        if (k == 'n' || k == ' ' || k == DUI_KEY_ENTER || k == '\n' || k == KEY_RIGHT) {
             if (n == NSTEPS - 1) break;
             n++;
             printf("tour: step %d\r\n", n);
             run_step(n);
             draw_step(n, 0);
-        } else if ((k == 'b' || k == 'p') && n > 0) {
+        } else if ((k == 'b' || k == 'p' || k == KEY_LEFT) && n > 0) {
             n--;
             printf("tour: step %d\r\n", n);
             run_step(n);

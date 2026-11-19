@@ -226,7 +226,10 @@ left, 0xCD right, 0xC7 Home, 0xCF End, 0xC9 PgUp, 0xD1 PgDn, 0xD3 Delete.
 The serial decoder maps the vt100/xterm sequences (`ESC [ A`.., `ESC [ 1~`..)
 onto the same codes and delivers a lone Escape as `ESC ESC`, so a program
 behaves the same on the PS/2 keyboard and over the serial console the gate
-drives. `user/ui.h` names them.
+drives. `user/ui.h` names them (UI_*), `user/libc.h` names the four arrows
+(KEY_UP/DOWN/LEFT/RIGHT) for programs without the toolkit - snake and
+invaders steer with them since v2.88. The codes sit above 0x7F, so a
+program that only looks at printable ASCII ignores them.
 
 **The ring starts empty.** `run_start` sets `kr_tail = kr_head` when no
 foreground program holds the keyboard (v2.88). push_key feeds the ring

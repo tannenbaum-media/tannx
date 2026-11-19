@@ -74,5 +74,12 @@ void   fb_blit_scaled(fb_t *fb, const uint32_t *src, int sw, int sh,
 
 /* key codes */
 #define KEY_ESC 27
+/* navigation keys out of sys_getkey(): 0x80 | PS/2 make scancode, from the
+ * PS/2 E0 arrows and the serial ESC-[ decoder alike (same table as UI_* in
+ * ui.h and the "Key ring codes" section of docs/ARCHITECTURE.md) */
+#define KEY_UP    0xC8
+#define KEY_DOWN  0xD0
+#define KEY_LEFT  0xCB
+#define KEY_RIGHT 0xCD
 
 #endif /* AGENTOS_LIBC_H */

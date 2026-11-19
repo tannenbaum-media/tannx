@@ -48,7 +48,8 @@ void dui_header(const char *app, const char *hint);  /* top bar: logo + name + h
 void dui_footer(const char *keys);            /* bottom bar: key hints              */
 void dui_bar(int x, int y, int w, int h, int permille, uint32_t col); /* progress */
 
-/* keys: sys_getkey() is non-blocking and ASCII-only (no arrows in ring 3) */
+/* keys: sys_getkey() is non-blocking; ASCII as typed, the arrows as
+ * KEY_UP/DOWN/LEFT/RIGHT (0x80|scancode, libc.h) - never inside 32..126 */
 #define DUI_KEY_ENTER 13
 #define DUI_KEY_BS    8
 #define DUI_KEY_ESC   27

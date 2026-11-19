@@ -7,9 +7,10 @@
  * the framebuffer (SYS_FBINFO) instead of VGA text cells, and only talks to
  * the kernel through INT 0x30 - so it costs the kernel nothing.
  *
- * Launch: 'run snake'. Controls: WASD to steer, P pause, Q/Esc quit.
- * (Arrow keys can't reach ring 3 - the kernel only feeds printable ASCII to
- *  the SYS_GETKEY ring - so WASD is the steering, same as serial play.)
+ * Launch: 'snake' or 'run snake'. Controls: arrow keys or WASD to steer,
+ * P pause, Q/Esc quit. The arrows arrive as KEY_UP/DOWN/LEFT/RIGHT
+ * (0x80|scancode, libc.h) from the PS/2 keyboard and the serial ESC-[
+ * decoder alike; WASD stays for terminals that send neither.
  *
  * Sound (the eat/die PC-speaker blips) is intentionally absent for now:
  * ring 3 can't touch port 0x61, and there is no SYS_BEEP yet. It comes back
@@ -180,13 +181,14 @@ static void banner(const char *s, int row, uint32_t col) {
 static int title_screen(void) {
     redraw_all();
     banner("SNAKE", 9, COL_TITLE);
-    banner("WASD STEER  P PAUSE  Q QUIT", 12, COL_NUM);
+    banner("ARROWS/WASD STEER  P PAUSE  Q QUIT", 12, COL_NUM);
     banner("SPACE TO START", 14, COL_LEN);
     uint32_t t0 = sys_uptime();
     for (;;) {
         int k = sys_getkey();
         if (k == 'q' || k == KEY_ESC) return 0;     /* quit from title */
-        if (k == ' ' || k == 'w' || k == 'a' || k == 's' || k == 'd') break;
+        if (k == ' ' || k == 'w' || k == 'a' || k == 's' || k == 'd' ||
+            k == KEY_UP || k == KEY_DOWN || k == KEY_LEFT || k == KEY_RIGHT) break;
         if (sys_uptime() - t0 >= 54) break;          /* ~3 s auto-start */
         sys_yield();
     }
@@ -196,10 +198,10 @@ static int title_screen(void) {
 /* ---- direction change with the kernel's reverse-prevention ----------- */
 static void steer(int k) {
     int nd = -1;
-    if (k == 'w') nd = 0;
-    else if (k == 's') nd = 1;
-    else if (k == 'a') nd = 2;
-    else if (k == 'd') nd = 3;
+    if (k == 'w' || k == KEY_UP) nd = 0;
+    else if (k == 's' || k == KEY_DOWN) nd = 1;
+    else if (k == 'a' || k == KEY_LEFT) nd = 2;
+    else if (k == 'd' || k == KEY_RIGHT) nd = 3;
     if (nd < 0) return;
     /* can't reverse onto the same axis (0/1 vertical, 2/3 horizontal) */
     if ((s_dir | 1) == (nd | 1)) return;
